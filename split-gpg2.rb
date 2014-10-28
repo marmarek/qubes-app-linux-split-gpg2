@@ -35,6 +35,8 @@ module SplitGPG2
     end
   end
 
+  # from assuan.h
+  ASSUAN_LINELENGTH = 1002
 
   class Server
     attr_reader :commands, :options, :hash_algos, :timer_delay
@@ -158,7 +160,10 @@ module SplitGPG2
 
     def cin_gets
       @log_m.synchronize do
-        u_l = @cin.gets
+        u_l = @cin.gets("\n", ASSUAN_LINELENGTH + 1)
+        if u_l && u_l.length > ASSUAN_LINELENGTH
+          raise Error::GPGAgent::Filtered
+        end
         log_io 'C >>>', u_l
         u_l
       end
@@ -173,7 +178,7 @@ module SplitGPG2
 
     def agent_gets
       @log_m.synchronize do
-        u_l = @agent.gets
+        u_l = @agent.gets("\n")
         log_io 'A >>>', u_l
         u_l
       end
