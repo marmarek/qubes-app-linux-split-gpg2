@@ -296,7 +296,7 @@ module SplitGPG2
       end
 
       short_msg =  "split-gpg2: '#{@client_vm}' wants to execute #{name}"
-      question = short_msg + "\nDo you want to allow this#{delay ? ' for the next #{delay} s' : ''}?"
+      question = short_msg + "\nDo you want to allow this#{delay ? " for the next #{delay} s" : ''}?"
 
       unless system 'zenity', '--question', '--title', short_msg, '--text', question
         raise Error::GPGAgent::Filtered
