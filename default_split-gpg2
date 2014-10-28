@@ -1,5 +1,8 @@
+#### Settings affecting the client (running gpg2) ####
 export QUBES_GPG_DOMAIN=gpg
 
+
+##### Settings affecting the client (running gpg-agent) ####
 export QUBES_SPLIT_GPG2_PKSIGN_AUTOACCEPT_TIME=no
 export QUBES_SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME=300
 
