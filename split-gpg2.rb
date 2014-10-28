@@ -121,7 +121,8 @@ module SplitGPG2
         'SETKEYDESC' => method(:command_SETKEYDESC),
         'PKDECRYPT' => method(:command_PKDECRYPT),
         'SETHASH' => method(:command_SETHASH),
-        'PKSIGN' => method(:command_PKSIGN)
+        'PKSIGN' => method(:command_PKSIGN),
+        'GETINFO' => method(:command_GETINFO)
       }
     end
 
@@ -459,6 +460,15 @@ module SplitGPG2
       handle_server_response cmd, {
         'PINENTRY_LAUNCHED' => method(:inquire_PINENTRY_LAUNCHED)
       }
+    end
+
+    def command_GETINFO(u_args)
+      if u_args != 'version'
+        raise Error::GPGAgent::Filtered
+      end
+      args = u_args
+
+      handle_server_response "GETINFO #{args}", {}
     end
 
     def inquire_KEYPARAM(u_args)
