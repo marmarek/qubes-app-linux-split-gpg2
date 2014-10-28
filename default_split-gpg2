@@ -1,0 +1,9 @@
+export QUBES_GPG_DOMAIN=gpg
+
+export QUBES_SPLIT_GPG2_PKSIGN_AUTOACCEPT_TIME=no
+export QUBES_SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME=300
+
+# this is for debugging purpose only
+# EVERYTHING WILL BE LOGGED
+# including potentially confidential data/keys/etc.
+#export QUBES_SPLIT_GPG2_DEBUG_LOG=/tmp/split-gpg2.log

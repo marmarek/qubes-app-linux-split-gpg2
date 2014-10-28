@@ -1,0 +1,11 @@
+[Unit]
+Description=Qubes split-gpg2 client
+ConditionPathExists=/var/run/qubes-service/split-gpg2
+RequiresMountsFor=/home
+
+[Service]
+ExecStart=/bin/su - user -c /usr/share/split-gpg2/split-gpg2-client
+StandardOutput=syslog
+
+[Install]
+WantedBy=multi-user.target

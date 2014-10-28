@@ -1,0 +1,3 @@
+#!/bin/bash
+
+socat "UNIX-LISTEN:`gpgconf --list-dirs | grep '^agent-socket:' | cut -d ':' -f 2`,fork" EXEC:/usr/share/split-gpg2/split-gpg2-client-wrapper

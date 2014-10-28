@@ -1,0 +1,13 @@
+Source: split-gpg2
+Maintainer: HW42 <hw42@ipsumj.de>
+Section: misc
+Priority: optional
+Standards-Version: 3.9.6
+Build-Depends: debhelper (>= 9)
+
+Package: split-gpg2
+Architecture: all
+Depends: ${misc:Depends}, socat, ruby (>= 1.9), bash
+Description: split-gpg2 for Qubes
+  split-gpg2 allows you to run the gpg2 client in a different Qubes-Domain than
+  the gpg-agent 
