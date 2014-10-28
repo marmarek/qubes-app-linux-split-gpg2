@@ -1,6 +1,7 @@
 [Unit]
 Description=Qubes split-gpg2 client
 ConditionPathExists=/var/run/qubes-service/split-gpg2
+ConditionPathExists=/home/user/.split-gpg2-rc
 RequiresMountsFor=/home
 
 [Service]
