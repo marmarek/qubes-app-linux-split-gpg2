@@ -15,7 +15,7 @@ timer_names = {
   'QUBES_SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME' => :PKDECRYPT
 }
 timer_names.each do |name, key|
-  env = ENV['name']
+  env = ENV[name]
   if /\A\d+\z/ =~ env
     s.timer_delay[key] = env.to_i
   else
