@@ -4,6 +4,14 @@
 
 socat="`type -p socat`"
 
+clean_up() {
+        if [ -n "$tmp_dir" ]; then
+                rm -rf "$tmp_dir"
+        fi
+}
+
+trap clean_up EXIT
+
 tmp_dir="`mktemp -d --tmpdir split-gpg.XXXXXXXXXX`"
 socket="$tmp_dir/socket"
 
