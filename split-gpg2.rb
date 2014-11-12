@@ -110,14 +110,14 @@ module SplitGPG2
       begin
         log_io 'connected', ''
         handle_server_response nil, {}
-        while u_l = cin_gets
-          u_cmd, u_args = u_l.chop.split " ", 2
-          command = @commands[u_cmd]
+        while untrusted_l = cin_gets
+          untrusted_cmd, untrusted_args = untrusted_l.chop.split " ", 2
+          command = @commands[untrusted_cmd]
           unless command
             raise Error::GPGAgent::Filtered
           end
 
-          command.call u_args
+          command.call untrusted_args
         end
       rescue Error::GPGAgent::Filtered => e
         cout_write "ERR #{e.code} #{e.gpg_message}\n"
@@ -182,12 +182,12 @@ module SplitGPG2
 
     def cin_gets
       @log_m.synchronize do
-        u_l = @cin.gets("\n", ASSUAN_LINELENGTH + 1)
-        if u_l && u_l.length > ASSUAN_LINELENGTH
+        untrusted_l = @cin.gets("\n", ASSUAN_LINELENGTH + 1)
+        if untrusted_l && untrusted_l.length > ASSUAN_LINELENGTH
           raise Error::GPGAgent::Filtered
         end
-        log_io 'C >>>', u_l
-        u_l
+        log_io 'C >>>', untrusted_l
+        untrusted_l
       end
     end
 
@@ -200,9 +200,9 @@ module SplitGPG2
 
     def agent_gets
       @log_m.synchronize do
-        u_l = @agent.gets("\n")
-        log_io 'A >>>', u_l
-        u_l
+        untrusted_l = @agent.gets("\n")
+        log_io 'A >>>', untrusted_l
+        untrusted_l
       end
     end
 
@@ -213,42 +213,45 @@ module SplitGPG2
       end
     end
 
-    def log_io(prefix, u_msg)
-      unless @log && u_msg
+    def log_io(prefix, untrusted_msg)
+      unless @log && untrusted_msg
         return
       end
 
       now = Time.now
       print_ascii = (0x20..0x7e).map{|i| i.chr}
-      msg = u_msg.chop.chars.map{|c| print_ascii.include?(c) ? c : '.'}.join
+      msg = untrusted_msg.chop.chars.
+        map{|c| print_ascii.include?(c) ? c : '.'}.join
       @log_m.synchronize do
         @log.write("#{now.strftime('%Y-%m-%d %H:%M:%S.%N')}: " <<
           "#{Process.pid}: #{prefix} #{msg}\n")
       end
     end
 
-    def assert_no_arguments(u_args)
-      if u_args
+    def assert_no_arguments(untrusted_args)
+      if untrusted_args
         raise Error::GPGAgent::Filtered
       end
       nil
     end
 
-    def assert_keygrip_arguments(min, max, u_args)
+    def assert_keygrip_arguments(min, max, untrusted_args)
       unless /\A[0-9A-F]{40}( [0-9A-F]{40}){#{min - 1},#{max - 1}}\z/.match(
-        u_args)
+        untrusted_args)
         raise Error::GPGAgent::Filtered
       end
-      u_args
+      untrusted_args
     end
 
-    def sanitize_key_desc(u_args)
-      u_args = u_args.dup
-      u_args.gsub!('+', ' ')
-      u_args.gsub!(/%([0-9A-F]{2})/){|i| i[1,2].to_i(16).chr}
+    def sanitize_key_desc(untrusted_args)
+      untrusted_args = untrusted_args.dup
+      untrusted_args.gsub!('+', ' ')
+      untrusted_args.gsub!(/%([0-9A-F]{2})/){|i| i[1,2].to_i(16).chr}
       allowed_ascii = ((0x20..0x7e).to_a + [0x0a]).map{|i| i.chr}
       args = "Message from '#{@client_vm}':\n"
-      args << u_args.chars.map{|c| allowed_ascii.include?(c) ? c : '.'}.join
+      args << untrusted_args.chars.map do |c|
+        allowed_ascii.include?(c) ? c : '.'
+      end.join
       args.gsub!('%', '%25')
       args.gsub!('+', '%2B')
       args.gsub!("\n", '%0A')
@@ -267,25 +270,25 @@ module SplitGPG2
 
       # We gennerally consider the agent as trusted. But since the client can
       # determine part of the response we handle this here as untrusted.
-      while u_l = agent_gets
-        u_res, u_args = u_l.chop.split(' ', 2)
-        if ['D', 'S'].include? u_res
-          cout_write u_l
-        elsif ['OK', 'ERR'].include? u_res
-          cout_write u_l
+      while untrusted_l = agent_gets
+        untrusted_res, untrusted_args = untrusted_l.chop.split(' ', 2)
+        if ['D', 'S'].include? untrusted_res
+          cout_write untrusted_l
+        elsif ['OK', 'ERR'].include? untrusted_res
+          cout_write untrusted_l
           break
-        elsif u_res == 'INQUIRE'
-          unless u_args
+        elsif untrusted_res == 'INQUIRE'
+          unless untrusted_args
             raise Error::GPGAgent::Filtered
           end
 
-          u_inq, u_inq_args = u_args.split(' ', 2)
-          inquire = inquiries[u_inq]
+          untrusted_inq, untrusted_inq_args = untrusted_args.split(' ', 2)
+          inquire = inquiries[untrusted_inq]
           unless inquire
             raise Error::GPGAgent::Filtered
           end
 
-          inquire.call u_inq_args
+          inquire.call untrusted_inq_args
         else
           raise ProtocolError.new 'unexpected server response'
         end
@@ -294,14 +297,14 @@ module SplitGPG2
 
     def handle_inquire(inq, inquire_commands)
       cout_write "INQUIRE #{inq}\n"
-      while u_l = cin_gets
-        u_icmd, u_args = u_l.chop.split(' ', 2)
-        inquire_command = inquire_commands[u_icmd]
+      while untrusted_l = cin_gets
+        untrusted_icmd, untrusted_args = untrusted_l.chop.split(' ', 2)
+        inquire_command = inquire_commands[untrusted_icmd]
         unless inquire_command
           raise Error::GPGAgent::Filtered
         end
 
-        cont = inquire_command.call u_args
+        cont = inquire_command.call untrusted_args
         unless cont
           break
         end
@@ -341,22 +344,22 @@ module SplitGPG2
       "#{@agent_socket_path}_qubes-split-gpg2-timestamp_#{name}"
     end
 
-    def command_RESET(u_args)
-      assert_no_arguments u_args
+    def command_RESET(untrusted_args)
+      assert_no_arguments untrusted_args
       handle_server_response 'RESET', {}
     end
 
-    def command_OPTION(u_args)
-      unless u_args
+    def command_OPTION(untrusted_args)
+      unless untrusted_args
         raise Error::GPGAgent::Filtered
       end
 
-      u_name, u_value = u_args.split('=', 2)
-      action, opts = @options[u_name]
+      untrusted_name, untrusted_value = untrusted_args.split('=', 2)
+      action, opts = @options[untrusted_name]
 
       if action
         # known action => name trusted
-        name = u_name
+        name = untrusted_name
       end
 
       case action
@@ -370,18 +373,18 @@ module SplitGPG2
       when :verify
         verified = false
         if opts.respond_to?(:call)
-          verified = opts.call u_value
+          verified = opts.call untrusted_value
         elsif opts.kind_of? Regexp
-          verified = opts.match(u_value)
+          verified = opts.match(untrusted_value)
         else
-          verified = opts == u_value
+          verified = opts == untrusted_value
         end
 
         unless verified
           # verify unsuccessfully => filter out
           raise Error::GPGAgent::Filtered
         end
-        value = u_value # now trusted
+        value = untrusted_value # now trusted
 
         if value
           cmd = "OPTION #{name}=#{value}"
@@ -399,26 +402,26 @@ module SplitGPG2
       handle_server_response cmd, {}
     end
 
-    def command_AGENT_ID(u_args)
+    def command_AGENT_ID(untrusted_args)
       fake_respond(
         "ERR #{Error::GPGCode::UnknownIPCCommand} unknown IPC command")
     end
 
-    def command_HAVEKEY(u_args)
+    def command_HAVEKEY(untrusted_args)
       # upper keygrip limit is arbitary
-      args = assert_keygrip_arguments 1, 200, u_args
+      args = assert_keygrip_arguments 1, 200, untrusted_args
       handle_server_response "HAVEKEY #{args}", {}
     end
 
-    def command_KEYINFO(u_args)
-      args = assert_keygrip_arguments 1, 1, u_args
+    def command_KEYINFO(untrusted_args)
+      args = assert_keygrip_arguments 1, 1, untrusted_args
       handle_server_response "KEYINFO #{args}", {}
     end
 
-    def command_GENKEY(u_args)
-      if u_args && !/\A[0-9A-F]{24}\z/.match(u_args)
+    def command_GENKEY(untrusted_args)
+      if untrusted_args && !/\A[0-9A-F]{24}\z/.match(untrusted_args)
       end
-      args = u_args
+      args = untrusted_args
 
       cmd = 'GENKEY'
       cmd += " #{args}" if args
@@ -429,57 +432,58 @@ module SplitGPG2
       }
     end
 
-    def command_SIGKEY(u_args)
-      args = assert_keygrip_arguments 1, 1, u_args
+    def command_SIGKEY(untrusted_args)
+      args = assert_keygrip_arguments 1, 1, untrusted_args
       handle_server_response "SIGKEY #{args}", {}
     end
 
-    def command_SETKEY(u_args)
-      args = assert_keygrip_arguments 1, 1, u_args
+    def command_SETKEY(untrusted_args)
+      args = assert_keygrip_arguments 1, 1, untrusted_args
       handle_server_response "SETKEY #{args}", {}
     end
 
-    def command_SETKEYDESC(u_args)
+    def command_SETKEYDESC(untrusted_args)
       # XXX: is there a better way than showing the message
       #      from the untrusted domain
-      args = sanitize_key_desc(u_args)
+      args = sanitize_key_desc(untrusted_args)
 
       handle_server_response "SETKEYDESC #{args}", {}
     end
 
-    def command_PKDECRYPT(u_args)
+    def command_PKDECRYPT(untrusted_args)
       request_timer :PKDECRYPT
 
-      assert_no_arguments u_args
+      assert_no_arguments untrusted_args
       handle_server_response 'PKDECRYPT', {
         'CIPHERTEXT' => method(:inquire_CIPHERTEXT),
         'PINENTRY_LAUNCHED' => method(:inquire_PINENTRY_LAUNCHED)
       }
     end
 
-    def command_SETHASH(u_args)
-      u_alg, u_hash = u_args.split(' ', 2)
-      alg = u_alg.to_i
+    def command_SETHASH(untrusted_args)
+      untrusted_alg, untrusted_hash = untrusted_args.split(' ', 2)
+      alg = untrusted_alg.to_i
       alg_param = @hash_algos[alg]
       unless alg_param
         raise Error::GPGAgent::Filtered
       end
 
-      unless u_hash && /\A[0-9A-F]{#{alg_param[:len]}}\z/.match(u_hash)
+      unless untrusted_hash &&
+        /\A[0-9A-F]{#{alg_param[:len]}}\z/.match(untrusted_hash)
         raise Error::GPGAgent::Filtered
       end
-      hash = u_hash
+      hash = untrusted_hash
         
       handle_server_response "SETHASH #{alg} #{hash}", {}
     end
 
-    def command_PKSIGN(u_args)
+    def command_PKSIGN(untrusted_args)
       request_timer :PKSIGN
 
-      if u_args && !/\A-- [0-9A-F]{24}\z/.match(u_args)
+      if untrusted_args && !/\A-- [0-9A-F]{24}\z/.match(untrusted_args)
         raise Error::GPGAgent::Filtered
       end
-      args = u_args
+      args = untrusted_args
 
       cmd = 'PKSIGN'
       cmd += " #{args}" if args
@@ -489,58 +493,58 @@ module SplitGPG2
       }
     end
 
-    def command_GETINFO(u_args)
-      if u_args != 'version'
+    def command_GETINFO(untrusted_args)
+      if untrusted_args != 'version'
         raise Error::GPGAgent::Filtered
       end
-      args = u_args
+      args = untrusted_args
 
       handle_server_response "GETINFO #{args}", {}
     end
 
-    def command_BYE(u_args)
-      assert_no_arguments u_args
+    def command_BYE(untrusted_args)
+      assert_no_arguments untrusted_args
 
       handle_server_response 'BYE', {}
 
       [@cin, @cout, @agent].each{|c| c.close unless c.closed?}
     end
 
-    def inquire_KEYPARAM(u_args)
-      assert_no_arguments u_args
+    def inquire_KEYPARAM(untrusted_args)
+      assert_no_arguments untrusted_args
       handle_inquire 'KEYPARAM', {
         'D' => method(:inquire_command_D),
         'END' => method(:inquire_command_END)
       }
     end
 
-    def inquire_PINENTRY_LAUNCHED(u_args)
-      unless u_args && /\A\d+\z/.match(u_args)
+    def inquire_PINENTRY_LAUNCHED(untrusted_args)
+      unless untrusted_args && /\A\d+\z/.match(untrusted_args)
         raise Error::GPGAgent::Filtered
       end
-      args = u_args
+      args = untrusted_args
 
       handle_inquire "PINENTRY_LAUNCHED #{args}", {
         'END' => method(:inquire_command_END)
       }
     end
 
-    def inquire_CIPHERTEXT(u_args)
-      assert_no_arguments u_args
+    def inquire_CIPHERTEXT(untrusted_args)
+      assert_no_arguments untrusted_args
       handle_inquire 'CIPHERTEXT', {
         'D' => method(:inquire_command_D),
         'END' => method(:inquire_command_END)
       }
     end
 
-    def inquire_command_D(u_args)
+    def inquire_command_D(untrusted_args)
       # XXX: should we sanitize this here?
-      send_inquire_command "D #{u_args}"
+      send_inquire_command "D #{untrusted_args}"
       true
     end
 
-    def inquire_command_END(u_args)
-      assert_no_arguments u_args
+    def inquire_command_END(untrusted_args)
+      assert_no_arguments untrusted_args
       send_inquire_command 'END'
       false
     end
