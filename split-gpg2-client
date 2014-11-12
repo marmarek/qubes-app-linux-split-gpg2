@@ -2,12 +2,14 @@
 
 agent_socket=`gpgconf --list-dirs | grep '^agent-socket:' | cut -d ':' -f 2`
 
-agent_pid=`lsof -F p "$agent_socket" | cut -b 2-`
+if [ -S "$agent_socket" ]; then
+    agent_pid=`lsof -F p "$agent_socket" | cut -b 2-`
 
-if [ -n $agent_pid ]; then
+    if [ -n $agent_pid ]; then
         kill $agent_pid
-fi
+    fi
 
-rm -f "$agent_socket"
+    rm -f "$agent_socket"
+fi
 
 socat "UNIX-LISTEN:$agent_socket,fork" EXEC:/usr/share/split-gpg2/split-gpg2-client-wrapper
