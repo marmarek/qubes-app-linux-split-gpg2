@@ -182,6 +182,10 @@ module SplitGPG2
     private
 
     def cin_gets
+      if @cin.closed?
+        return nil
+      end
+
       @log_m.synchronize do
         untrusted_l = @cin.gets("\n", ASSUAN_LINELENGTH + 1)
         if untrusted_l && untrusted_l.length > ASSUAN_LINELENGTH
