@@ -1,4 +1,4 @@
-# put this file in ~user/.split-gpg2-rc and moify according your needs
+# put this file in ~user/.split-gpg2-rc and modify according your needs
 
 #### Settings affecting the client (running gpg2) ####
 export QUBES_GPG_DOMAIN=gpg
@@ -7,6 +7,14 @@ export QUBES_GPG_DOMAIN=gpg
 ##### Settings affecting the client (running gpg-agent) ####
 export QUBES_SPLIT_GPG2_PKSIGN_AUTOACCEPT_TIME=no
 export QUBES_SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME=300
+
+# for more advanced setups you can set GNUPG home here. This file will be
+# sourced everytime a client connets. To have one home dir per client domain
+# you can use:
+#export GNUPGHOME="$HOME/gpg-home/$QREXEC_REMOTE_DOMAIN"
+# before using this you have to create a gpg home for each client domain in
+# ~user/gpg-home/$client_domain where $client_domain is the name of the client
+# domain
 
 # this is for debugging purpose only
 # EVERYTHING WILL BE LOGGED
