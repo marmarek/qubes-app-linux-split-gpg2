@@ -15,6 +15,10 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+# Part of split-gpg2.
+#
+# This implements the server part. See README for details.
+
 require 'socket'
 require 'fileutils'
 
@@ -60,6 +64,9 @@ module SplitGPG2
     attr_reader :commands, :options, :hash_algos, :timer_delay
     attr_accessor :log
 
+    # +cin+:: client input IO-object
+    # +cout+:: client output IO-object
+    # +client_vm+:: name of the connected client vm
     def initialize(cin, cout, client_vm)
       @cin = cin
       @cout = cout
@@ -84,6 +91,7 @@ module SplitGPG2
 
     private
 
+    # Ensure that a local gpg-agent runns and connect to it.
     def connect_agent
       unless system 'gpgconf', '--launch', 'gpg-agent'
         raise Error::GPGAgent::StartFailed
@@ -107,6 +115,7 @@ module SplitGPG2
 
     public
 
+    # Main loop.
     def run
       begin
         log_io 'connected', ''
@@ -123,7 +132,9 @@ module SplitGPG2
       rescue Error::GPGAgent::Filtered => e
         cout_write "ERR #{e.code} #{e.gpg_message}\n"
         # break handling since we aren't sure that clients handle the error
-        # correctly
+        # correctly. This makes the filtering easier to implement and we ensure
+        # that a client does not wrongly assume that a command was successful
+        # while is was indeed filtered out.
       ensure
         log_io 'disconnected', ''
       end
@@ -181,6 +192,9 @@ module SplitGPG2
 
     private
 
+    # IO helper from/to agent/client. These automaticaly log the IO if logging
+    # is enabled.
+
     def cin_gets
       if @cin.closed?
         return nil
@@ -218,6 +232,9 @@ module SplitGPG2
       end
     end
 
+    # Log messasge.
+    # +prefix+:: prefix to put infront of the logged message.
+    # +untrusted_msg+:: message to log. Will be santizied before written to log
     def log_io(prefix, untrusted_msg)
       unless @log && untrusted_msg
         return
@@ -364,7 +381,6 @@ module SplitGPG2
       action, opts = @options[untrusted_name]
 
       if action
-        # known action => name trusted
         name = untrusted_name
       end
 
@@ -387,10 +403,9 @@ module SplitGPG2
         end
 
         unless verified
-          # verify unsuccessfully => filter out
           raise Error::GPGAgent::Filtered
         end
-        value = untrusted_value # now trusted
+        value = untrusted_value
 
         if value
           cmd = "OPTION #{name}=#{value}"
