@@ -422,6 +422,7 @@ module SplitGPG2
 
     def command_GENKEY(untrusted_args)
       if untrusted_args && !/\A[0-9A-F]{24}\z/.match(untrusted_args)
+        raise Error::GPGAgent::Filtered
       end
       args = untrusted_args
 
