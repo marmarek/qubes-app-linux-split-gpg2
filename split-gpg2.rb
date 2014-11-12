@@ -92,8 +92,9 @@ module SplitGPG2
       gc_out_r, gc_out_w = IO.pipe
       Process.wait(spawn('gpgconf', '--list-dirs', out: gc_out_w))
       gc_out_w.close
-      sp = gc_out_r.read.split("\n").map{|i| i.split(':', 2)}.
-        find{|i| i[0] == 'agent-socket'}
+      gc_lines = gc_out_r.read.split("\n")
+      sp = gc_lines.map{|i| i.split(':', 2)}.find{|i| i[0] == 'agent-socket'}
+
       unless sp && sp[1] && File.socket?(sp[1])
         raise Error::GPGAgent::GetSocketPathFailed
       end
@@ -236,8 +237,8 @@ module SplitGPG2
     end
 
     def assert_keygrip_arguments(min, max, untrusted_args)
-      unless /\A[0-9A-F]{40}( [0-9A-F]{40}){#{min - 1},#{max - 1}}\z/.match(
-        untrusted_args)
+      args_regex = /\A[0-9A-F]{40}( [0-9A-F]{40}){#{min - 1},#{max - 1}}\z/
+      unless args_regex.match(untrusted_args)
         raise Error::GPGAgent::Filtered
       end
       untrusted_args
@@ -329,8 +330,9 @@ module SplitGPG2
       end
 
       short_msg =  "split-gpg2: '#{@client_vm}' wants to execute #{name}"
-      question = short_msg +
-        "\nDo you want to allow this#{delay ? " for the next #{delay} s" : ''}?"
+      question = short_msg.dup
+      question << "\nDo you want to allow this"
+      question << (delay ? " for the next #{delay} s?" : '?')
 
       unless system('zenity', '--question', '--title', short_msg, '--text',
                     question)
@@ -468,8 +470,11 @@ module SplitGPG2
         raise Error::GPGAgent::Filtered
       end
 
-      unless untrusted_hash &&
-        /\A[0-9A-F]{#{alg_param[:len]}}\z/.match(untrusted_hash)
+      unless untrusted_hash
+        raise Error::GPGAgent::Filtered
+      end
+
+      unless /\A[0-9A-F]{#{alg_param[:len]}}\z/.match(untrusted_hash)
         raise Error::GPGAgent::Filtered
       end
       hash = untrusted_hash
