@@ -32,7 +32,8 @@ module SplitGPG2
 
       class Filtered < self
         def code
-          GPGCode::SOURCE_GPGAGENT << GPGCode::SOURCE_SHIFT | GPGCode::ERR_USER_1
+          GPGCode::SOURCE_GPGAGENT << GPGCode::SOURCE_SHIFT |
+            GPGCode::ERR_USER_1
         end
 
         def gpg_message
@@ -91,7 +92,8 @@ module SplitGPG2
       gc_out_r, gc_out_w = IO.pipe
       Process.wait(spawn('gpgconf', '--list-dirs', out: gc_out_w))
       gc_out_w.close
-      sp = gc_out_r.read.split("\n").map{|i| i.split(':', 2)}.find{|i| i[0] == 'agent-socket'}
+      sp = gc_out_r.read.split("\n").map{|i| i.split(':', 2)}.
+        find{|i| i[0] == 'agent-socket'}
       unless sp && sp[1] && File.socket?(sp[1])
         raise Error::GPGAgent::GetSocketPathFailed
       end
@@ -119,7 +121,8 @@ module SplitGPG2
         end
       rescue Error::GPGAgent::Filtered => e
         cout_write "ERR #{e.code} #{e.gpg_message}\n"
-        # break handling since we aren't sure that clients handle the error correctly
+        # break handling since we aren't sure that clients handle the error
+        # correctly
       ensure
         log_io 'disconnected', ''
       end
@@ -219,7 +222,8 @@ module SplitGPG2
       print_ascii = (0x20..0x7e).map{|i| i.chr}
       msg = u_msg.chop.chars.map{|c| print_ascii.include?(c) ? c : '.'}.join
       @log_m.synchronize do
-        @log.write "#{now.strftime('%Y-%m-%d %H:%M:%S.%N')}: #{Process.pid}: #{prefix} #{msg}\n"
+        @log.write("#{now.strftime('%Y-%m-%d %H:%M:%S.%N')}: " <<
+          "#{Process.pid}: #{prefix} #{msg}\n")
       end
     end
 
@@ -231,7 +235,8 @@ module SplitGPG2
     end
 
     def assert_keygrip_arguments(min, max, u_args)
-      unless /\A[0-9A-F]{40}( [0-9A-F]{40}){#{min - 1},#{max - 1}}\z/.match u_args
+      unless /\A[0-9A-F]{40}( [0-9A-F]{40}){#{min - 1},#{max - 1}}\z/.match(
+        u_args)
         raise Error::GPGAgent::Filtered
       end
       u_args
@@ -242,7 +247,8 @@ module SplitGPG2
       u_args.gsub!('+', ' ')
       u_args.gsub!(/%([0-9A-F]{2})/){|i| i[1,2].to_i(16).chr}
       allowed_ascii = ((0x20..0x7e).to_a + [0x0a]).map{|i| i.chr}
-      args = "Message from '#{@client_vm}':\n#{u_args.chars.map{|c| allowed_ascii.include?(c) ? c : '.'}.join}"
+      args = "Message from '#{@client_vm}':\n"
+      args << u_args.chars.map{|c| allowed_ascii.include?(c) ? c : '.'}.join
       args.gsub!('%', '%25')
       args.gsub!('+', '%2B')
       args.gsub!("\n", '%0A')
@@ -320,9 +326,11 @@ module SplitGPG2
       end
 
       short_msg =  "split-gpg2: '#{@client_vm}' wants to execute #{name}"
-      question = short_msg + "\nDo you want to allow this#{delay ? " for the next #{delay} s" : ''}?"
+      question = short_msg +
+        "\nDo you want to allow this#{delay ? " for the next #{delay} s" : ''}?"
 
-      unless system 'zenity', '--question', '--title', short_msg, '--text', question
+      unless system('zenity', '--question', '--title', short_msg, '--text',
+                    question)
         raise Error::GPGAgent::Filtered
       end
 
@@ -392,7 +400,8 @@ module SplitGPG2
     end
 
     def command_AGENT_ID(u_args)
-      fake_respond "ERR #{Error::GPGCode::UnknownIPCCommand} unknown IPC command"
+      fake_respond(
+        "ERR #{Error::GPGCode::UnknownIPCCommand} unknown IPC command")
     end
 
     def command_HAVEKEY(u_args)
