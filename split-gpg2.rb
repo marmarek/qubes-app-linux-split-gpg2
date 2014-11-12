@@ -122,7 +122,8 @@ module SplitGPG2
         'PKDECRYPT' => method(:command_PKDECRYPT),
         'SETHASH' => method(:command_SETHASH),
         'PKSIGN' => method(:command_PKSIGN),
-        'GETINFO' => method(:command_GETINFO)
+        'GETINFO' => method(:command_GETINFO),
+        'BYE' => method(:command_BYE)
       }
     end
 
@@ -469,6 +470,14 @@ module SplitGPG2
       args = u_args
 
       handle_server_response "GETINFO #{args}", {}
+    end
+
+    def command_BYE(u_args)
+      assert_no_arguments u_args
+
+      handle_server_response 'BYE', {}
+
+      [@cin, @cout, @agent].each{|c| c.close unless c.closed?}
     end
 
     def inquire_KEYPARAM(u_args)
