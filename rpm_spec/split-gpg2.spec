@@ -13,6 +13,7 @@ Requires:       ruby >= 1.9
 Requires:       bash
 #Requires:       gnupg >= 2.1.0
 Requires:       systemd
+Requires:       zenity
 
 %define _builddir %(pwd)
 
