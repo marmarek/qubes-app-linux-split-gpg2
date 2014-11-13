@@ -62,7 +62,7 @@ module SplitGPG2
 
   class Server
     attr_reader :commands, :options, :hash_algos, :timer_delay
-    attr_accessor :log
+    attr_accessor :log, :verbose_notifications
 
     # +cin+:: client input IO-object
     # +cout+:: client output IO-object
@@ -83,6 +83,7 @@ module SplitGPG2
       @options = default_options
       @hash_algos = default_hash_algos
       @timer_delay = default_timer_delay
+      @verbose_notifications = false
 
       @log_m = Monitor.new
 
@@ -119,10 +120,14 @@ module SplitGPG2
     def run
       begin
         log_io 'connected', ''
+        if @verbose_notifications
+          notify 'connected'
+        end
         handle_server_response nil, {}
         while untrusted_l = cin_gets
           untrusted_cmd, untrusted_args = untrusted_l.chop.split " ", 2
           command = @commands[untrusted_cmd]
+
           unless command
             raise Error::GPGAgent::Filtered
           end
@@ -130,6 +135,8 @@ module SplitGPG2
           command.call untrusted_args
         end
       rescue Error::GPGAgent::Filtered => e
+        notify "command filtered out"
+
         cout_write "ERR #{e.code} #{e.gpg_message}\n"
         # break handling since we aren't sure that clients handle the error
         # correctly. This makes the filtering easier to implement and we ensure
@@ -137,6 +144,9 @@ module SplitGPG2
         # while is was indeed filtered out.
       ensure
         log_io 'disconnected', ''
+        if @verbose_notifications
+          notify 'disconnected'
+        end
       end
     end
 
@@ -339,13 +349,13 @@ module SplitGPG2
 
     def request_timer(name)
       now = Time.now
-      # XXX: notify
  
       delay = @timer_delay[name]
       ts = timestamp_path name
       if delay
         mtime = File.mtime(ts) rescue nil
         if mtime && (mtime + delay) > now
+          notify "command '#{name}' automatically allowed"
           return
         end
       end
@@ -360,7 +370,13 @@ module SplitGPG2
         raise Error::GPGAgent::Filtered
       end
 
+      notify "command '#{name}' allowed"
+
       FileUtils.touch ts
+    end
+
+    def notify(msg)
+      system 'notify-send', "split-gpg2: '#{@client_domain}': #{msg}"
     end
 
     def timestamp_path(name)

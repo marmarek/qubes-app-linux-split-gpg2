@@ -8,6 +8,9 @@ export QUBES_GPG_DOMAIN=gpg
 export QUBES_SPLIT_GPG2_PKSIGN_AUTOACCEPT_TIME=no
 export QUBES_SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME=300
 
+# to enable verbose notifications comment the folloing line out:
+#export QUBES_SPLIT_GPG2_VERBOSE_NOTIFICATIONS=yes
+
 # for more advanced setups you can set GNUPG home here. This file will be
 # sourced everytime a client connets. To have one home dir per client domain
 # you can use:

@@ -23,4 +23,8 @@ timer_names.each do |name, key|
   end
 end
 
+if ENV['QUBES_SPLIT_GPG2_VERBOSE_NOTIFICATIONS'] == 'yes'
+  s.verbose_notifications = true
+end
+
 s.run
