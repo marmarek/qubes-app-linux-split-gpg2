@@ -66,11 +66,11 @@ module SplitGPG2
 
     # +cin+:: client input IO-object
     # +cout+:: client output IO-object
-    # +client_vm+:: name of the connected client vm
-    def initialize(cin, cout, client_vm)
+    # +client_domain+:: name of the connected client vm
+    def initialize(cin, cout, client_domain)
       @cin = cin
       @cout = cout
-      @client_vm = client_vm
+      @client_domain = client_domain
 
       @cin.sync = true
       @cout.sync = true
@@ -270,7 +270,7 @@ module SplitGPG2
       untrusted_args.gsub!('+', ' ')
       untrusted_args.gsub!(/%([0-9A-F]{2})/){|i| i[1,2].to_i(16).chr}
       allowed_ascii = ((0x20..0x7e).to_a + [0x0a]).map{|i| i.chr}
-      args = "Message from '#{@client_vm}':\n"
+      args = "Message from '#{@client_domain}':\n"
       args << untrusted_args.chars.map do |c|
         allowed_ascii.include?(c) ? c : '.'
       end.join
@@ -350,7 +350,7 @@ module SplitGPG2
         end
       end
 
-      short_msg =  "split-gpg2: '#{@client_vm}' wants to execute #{name}"
+      short_msg =  "split-gpg2: '#{@client_domain}' wants to execute #{name}"
       question = short_msg.dup
       question << "\nDo you want to allow this"
       question << (delay ? " for the next #{delay} s?" : '?')
