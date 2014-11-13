@@ -1,5 +1,5 @@
-split-gpg2 (0.1) UNRELEASED; urgency=low
+split-gpg2 (0.1) experimental; urgency=low
 
-  * Initial release.
+  * Initial beta release.
 
- -- HW42 <HW42@ipsumj.de>  Tue, 28 Oct 2014 18:11:02 +0100
+ -- HW42 <hw42@ipsumj.de>  Thu, 13 Nov 2014 02:36:25 +0100
