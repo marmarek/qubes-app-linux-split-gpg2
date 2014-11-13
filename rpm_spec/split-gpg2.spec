@@ -14,6 +14,7 @@ Requires:       bash
 #Requires:       gnupg >= 2.1.0
 Requires:       systemd
 Requires:       zenity
+Requires:       libnotify
 
 %define _builddir %(pwd)
 
