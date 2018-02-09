@@ -1,7 +1,7 @@
 [Unit]
 Description=Qubes split-gpg2 client
 ConditionPathExists=/var/run/qubes-service/split-gpg2-client
-RequiresMountsFor=/home
+After=qubes-misc-post.service
 
 [Service]
 ExecStart=/bin/su - user -c /usr/share/split-gpg2/split-gpg2-client
