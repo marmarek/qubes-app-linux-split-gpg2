@@ -177,6 +177,7 @@ module SplitGPG2
         'display' => [:override, ':0'],
         'lc-ctype' => [:fake, 'OK'],
         'lc-messages' => [:fake, 'OK'],
+        'putenv' => [:fake, 'OK'],
         'allow-pinentry-notify' => [:verify, nil],
         'agent-awareness' => [:verify, '2.1.0']
       }
