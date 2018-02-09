@@ -60,6 +60,6 @@ See /usr/share/split-gpg2/examples/split-gpg2-rc.example for an example and the
 available options.
 
 Enable the split-gpg2-client service in the client domain either via the gui or
-via 'qvm-service gpg-client-vm enable split-gpg2'. Restart the client domain.
+via 'qvm-service gpg-client-vm enable split-gpg2-client'. Restart the client domain.
 
 You should be now be able the run gpg2 in the client domain.
