@@ -62,4 +62,10 @@ available options.
 Enable the split-gpg2-client service in the client domain either via the gui or
 via 'qvm-service gpg-client-vm enable split-gpg2-client'. Restart the client domain.
 
-You should be now be able the run gpg2 in the client domain.
+You should now be able the run gpg2 in the client domain.
+
+For keys for which you have the secret part you need to import the **public**
+part in both the client and the server domain. The secret part should only be
+imported in the server domain.
+
+Other public keys should only be imported in the client domain.
