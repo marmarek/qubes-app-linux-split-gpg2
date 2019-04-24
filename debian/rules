@@ -1,4 +1,10 @@
 #!/usr/bin/make -f
 
+export PYBUILD_NAME = splitgpg2
+
+override_dh_auto_install:
+	dh_auto_install
+	$(MAKE) install-other DESTDIR=debian/split-gpg2
+
 %:
-	dh $@ --with=systemd
+	dh $@ --with=python3,systemd --buildsystem=pybuild

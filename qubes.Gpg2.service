@@ -1,2 +1,2 @@
 . ~user/.split-gpg2-rc
-/usr/share/split-gpg2/split-gpg2-server
+/usr/bin/python3 -m splitgpg2
