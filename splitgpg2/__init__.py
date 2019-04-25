@@ -130,6 +130,7 @@ class GpgServer:
         self.allow_keygen = False
         #: signal those Futures when connection is terminated
         self.notify_on_disconnect = set()
+        self.log_io_enable = False
 
         self.client_reader = reader
         self.client_writer = writer
@@ -161,9 +162,17 @@ class GpgServer:
             self.agent_writer.close()
 
     def log_io(self, prefix, untrusted_msg):
+        if not self.log_io_enable:
+            return
+        allowed = string.printable.\
+            replace('\n', '').\
+            replace('\r', '').\
+            replace('\f', '').\
+            replace('\v', '')
+        allowed = allowed.encode('ascii')
         self.log.warning('%s: %s', prefix, ''.join(
-            chr(c) if c in string.printable.encode('ascii') else '.'
-            for c in untrusted_msg))
+            chr(c) if c in allowed else '.'
+            for c in untrusted_msg.strip()))
 
     async def connect_agent(self):
         try:
