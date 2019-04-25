@@ -3,3 +3,5 @@ debian/source/local-options
 debian/split-gpg2*.debhelper*
 debian/split-gpg2/
 debian/split-gpg2.substvars
+pkgs/
+debian/changelog.*
