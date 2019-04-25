@@ -126,6 +126,8 @@ class GpgServer:
         # configuration options:
         self.verbose_notifications = False
         self.timer_delay = self.default_timer_delay()
+        #: allow client to generate a new key
+        self.allow_keygen = False
         #: signal those Futures when connection is terminated
         self.notify_on_disconnect = set()
 
@@ -427,17 +429,26 @@ class GpgServer:
         await self.send_agent_command(b'KEYINFO', args)
 
     async def command_GENKEY(self, untrusted_args: Optional[bytes]):
+        if not self.allow_keygen:
+            raise Filtered
         args = []
         if untrusted_args is not None:
             cache_nonce_added = False
             for untrusted_arg in untrusted_args.split(b' '):
-                if untrusted_arg.startswith(b'--'):
+                if untrusted_args == b'--no-protection':
                     # according to documentation,
                     # possible options (all related to password):
                     # --inq-passwd
                     # --no-protection
                     # --preset
-                    # ignore all of them for now
+                    # allow only --no-protection
+                    if cache_nonce_added:
+                        # option must come before cache_nonce
+                        raise Filtered
+                    args.append(untrusted_args)
+                elif untrusted_arg in (b'--inq-passwd', b'--preset'):
+                    # ignore other password-related options - do not
+                    # accept passphrase from the client
                     pass
                 elif self.cache_nonce_regex.match(untrusted_arg) \
                         and not cache_nonce_added:
@@ -520,10 +531,11 @@ class GpgServer:
 
     def get_inquires_for_command(self, command: bytes) -> Dict[bytes, Callable]:
         if command == b'GENKEY':
-            return {
+            inquires = {
                 b'KEYPARAM': self.inquire_KEYPARAM,
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
             }
+            return inquires
         elif command == b'PKDECRYPT':
             return {
                 b'CIPHERTEXT': self.inquire_CIPHERTEXT,
