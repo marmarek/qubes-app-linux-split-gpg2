@@ -537,10 +537,14 @@ class ServerProtocol(asyncio.Protocol):
             b'SETHASH', b'%d %s' % (alg, hash_value))
 
     async def command_PKSIGN(self, untrusted_args: Optional[bytes]):
-        args_regex = re.compile(rb'[0-9A-F]{24}')
-        if untrusted_args and args_regex.fullmatch(untrusted_args) is None:
-            raise Filtered
-        args = untrusted_args
+        if untrusted_args:
+            if untrusted_args.startswith(b'-- '):
+                untrusted_args = untrusted_args[3:]
+            if self.cache_nonce_regex.fullmatch(untrusted_args) is None:
+                raise Filtered
+            args = b'-- ' + untrusted_args
+        else:
+            args = None
 
         self.request_timer('PKSIGN')
 
