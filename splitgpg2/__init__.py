@@ -117,6 +117,8 @@ class ServerProtocol(asyncio.Protocol):
         # configuration options:
         self.verbose_notifications = False
         self.timer_delay = self.default_timer_delay()
+        #: allow client to provide passphrase
+        self.allow_client_passphrase = False
         #: signal those Futures when connection is terminated
         self.notify_on_disconnect = set()
 
@@ -470,8 +472,12 @@ class ServerProtocol(asyncio.Protocol):
                     # --inq-passwd
                     # --no-protection
                     # --preset
-                    # ignore all of them for now
-                    pass
+                    if self.allow_client_passphrase and untrusted_args in (
+                            b'--inq-passwd', b'--no-protection', b'--preset'):
+                        if cache_nonce_added:
+                            # option must come before cache_nonce
+                            raise Filtered
+                        args.append(untrusted_args)
                 elif self.cache_nonce_regex.fullmatch(untrusted_arg) \
                         and not cache_nonce_added:
                     args.append(untrusted_arg)
@@ -579,10 +585,13 @@ class AgentProtocol(asyncio.Protocol):
 
     def get_inquires_for_command(self, command: bytes) -> Dict[bytes, Callable]:
         if command == b'GENKEY':
-            return {
+            inquires = {
                 b'KEYPARAM': self.inquire_KEYPARAM,
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
             }
+            if self.server.allow_client_passphrase:
+                inquires[b'NEWPASSWD'] = self.inquire_NEWPASSWD
+            return inquires
         elif command == b'PKDECRYPT':
             return {
                 b'CIPHERTEXT': self.inquire_CIPHERTEXT,
@@ -702,6 +711,14 @@ class AgentProtocol(asyncio.Protocol):
         if untrusted_args:
             self.server.abort('unexpected arguments to CIPHERTEXT inquire')
         await self.server.send_inquire(b'CIPHERTEXT', {
+            b'D': self.inquire_command_D,
+            b'END': self.inquire_command_END,
+        })
+
+    async def inquire_NEWPASSWD(self, untrusted_args):
+        if untrusted_args:
+            self.server.abort('unexpected arguments to NEWPASSWD inquire')
+        await self.server.send_inquire(b'NEWPASSWD', {
             b'D': self.inquire_command_D,
             b'END': self.inquire_command_END,
         })
