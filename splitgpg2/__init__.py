@@ -110,6 +110,7 @@ class GpgServer:
     Separate protocol (:py:class:`AgentProtocol`) is used to interact with
     local real gpg agent. Its instance is saved in *agent_protocol* attribute.
     """
+    # pylint: disable=too-many-instance-attributes,too-many-public-methods
     # type hints, enable when python >= 3.6 will be everywhere...
     # inquire_commands: Dict[bytes, Callable[[bytes], Awaitable]]
     # timer_delay: Dict[str, Optional[int]]
@@ -425,6 +426,7 @@ class GpgServer:
         await self.send_agent_command(b'OPTION', option_arg)
 
     async def command_AGENT_ID(self, untrusted_args: Optional[bytes]):
+        # pylint: disable=unused-argument
         self.fake_respond(
             b'ERR %d unknown IPC command' % GPGErrorCode.UnknownIPCCommand)
 
@@ -545,17 +547,16 @@ class GpgServer:
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
             }
             return inquires
-        elif command == b'PKDECRYPT':
+        if command == b'PKDECRYPT':
             return {
                 b'CIPHERTEXT': self.inquire_CIPHERTEXT,
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
             }
-        elif command == b'PKSIGN':
+        if command == b'PKSIGN':
             return {
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
             }
-        else:
-            return {}
+        return {}
 
     async def send_agent_command(self, command: bytes, args: Optional[bytes]):
         """ Sends command to local gpg agent and handle the response """
