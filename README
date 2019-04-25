@@ -34,6 +34,11 @@ The server domain is generally considered more trustfull then the client domain.
 This implies that the response from the server is _not_ santizied.
 
 
+==== Requirements ====
+
+- Python 3.5 or newer
+- GnuPG 2.1 or newer
+
 ==== Building ====
 
 === Debian packages ===
