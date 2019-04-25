@@ -121,6 +121,7 @@ class ServerProtocol(asyncio.Protocol):
         self.allow_client_passphrase = False
         #: signal those Futures when connection is terminated
         self.notify_on_disconnect = set()
+        self.log_io_enable = False
 
         self.client_domain = client_domain
         self.commands = self.default_commands()
@@ -140,9 +141,17 @@ class ServerProtocol(asyncio.Protocol):
         self.inquire_complete = None
 
     def log_io(self, prefix, untrusted_msg):
+        if not self.log_io_enable:
+            return
+        allowed = string.printable.\
+            replace('\n', '').\
+            replace('\r', '').\
+            replace('\f', '').\
+            replace('\v', '')
+        allowed = allowed.encode('ascii')
         self.log.warning('%s: %s', prefix, ''.join(
-            chr(c) if c in string.printable.encode('ascii') else '.'
-            for c in untrusted_msg))
+            chr(c) if c in allowed else '.'
+            for c in untrusted_msg.strip()))
 
     async def connect_agent(self):
         try:
@@ -770,6 +779,7 @@ def main():
         handler = logging.FileHandler(debug_log)
         protocol.log.addHandler(handler)
         protocol.log.setLevel(logging.DEBUG)
+        protocol.log_io_enable = True
 
     for timer in TIMER_NAMES:
         if timer in os.environ:
