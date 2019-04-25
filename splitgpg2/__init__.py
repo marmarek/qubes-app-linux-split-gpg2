@@ -101,6 +101,7 @@ class ServerProtocol(asyncio.Protocol):
     Separate protocol (:py:class:`AgentProtocol`) is used to interact with
     local real gpg agent. Its instance is saved in *agent_protocol* attribute.
     """
+    # pylint: disable=too-many-instance-attributes,too-many-public-methods
     # type hints, enable when python >= 3.6 will be everywhere...
     # inquire_commands: Dict[bytes, Callable[[bytes], Awaitable]]
     # timer_delay: Dict[str, Optional[int]]
@@ -210,7 +211,7 @@ class ServerProtocol(asyncio.Protocol):
             # that a client does not wrongly assume that a command was successful
             # while is was indeed filtered out.
             self.abort('command filtered out')
-        except:
+        except:  # pylint: disable=bare-except
             self.log.exception('Error processing command')
             self.abort('error')
 
@@ -237,7 +238,7 @@ class ServerProtocol(asyncio.Protocol):
             # that a client does not wrongly assume that a command was successful
             # while is was indeed filtered out.
             self.abort('inquire filtered out')
-        except:
+        except:  # pylint: disable=bare-except
             self.log.exception('Error processing inquire')
             self.abort('error')
 
@@ -337,6 +338,7 @@ class ServerProtocol(asyncio.Protocol):
         return False
 
     def data_received(self, untrusted_data: bytes) -> None:
+        # pylint: disable=arguments-differ
         if len(self.untrusted_input_buffer) > ASSUAN_LINELENGTH*2:
             self.log.error('Too much data received, dropping')
 
@@ -457,6 +459,7 @@ class ServerProtocol(asyncio.Protocol):
         await self.agent_protocol.send_command(b'OPTION', option_arg)
 
     async def command_AGENT_ID(self, untrusted_args: Optional[bytes]):
+        # pylint: disable=unused-argument
         self.fake_respond(
             b'ERR %d unknown IPC command' % GPGCode.UnknownIPCCommand)
 
@@ -605,17 +608,16 @@ class AgentProtocol(asyncio.Protocol):
             if self.server.allow_client_passphrase:
                 inquires[b'NEWPASSWD'] = self.inquire_NEWPASSWD
             return inquires
-        elif command == b'PKDECRYPT':
+        if command == b'PKDECRYPT':
             return {
                 b'CIPHERTEXT': self.inquire_CIPHERTEXT,
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
             }
-        elif command == b'PKSIGN':
+        if command == b'PKSIGN':
             return {
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
             }
-        else:
-            return {}
+        return {}
 
     # was handle_server_response in ruby version
     async def send_command(self, command: bytes, args: Optional[bytes]):
@@ -639,6 +641,7 @@ class AgentProtocol(asyncio.Protocol):
         self.agent_transport.write(data)
 
     def data_received(self, untrusted_data: bytes) -> None:
+        # pylint: disable=arguments-differ
         self.server.log_io('A >>>', untrusted_data)
         if self.server.state != ServerState.agent_response:
             self.server.abort('message from gpg-agent at unexpected time')
@@ -653,7 +656,7 @@ class AgentProtocol(asyncio.Protocol):
             untrusted_line = bytes(untrusted_line)
             try:
                 self.handle_agent_response(untrusted_line=untrusted_line)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 # propagate exception back to self.send_command
                 self.agent_responded.set_exception(e)
                 break
@@ -697,7 +700,7 @@ class AgentProtocol(asyncio.Protocol):
             except KeyError:
                 raise Filtered
             await inquire(untrusted_args=untrusted_inq_args)
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             # propagate exception back to self.send_command
             if not self.agent_responded.done():
                 self.agent_responded.set_exception(e)
