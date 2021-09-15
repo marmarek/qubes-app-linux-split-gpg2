@@ -111,7 +111,7 @@ It could do things like checking what data is singed, detailed logging, exposing
 
 ## Copyright
 
-Copyright (C) 2014 HW42 <hw42@ipsumj.de>
+Copyright (C) 2014 HW42 <hw42@ipsumj.de>\
 Copyright (C) 2019 Marek Marczykowski-Górecki <marmarek@invisiblethingslab.com>
 
 This program is free software; you can redistribute it and/or modify
