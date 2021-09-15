@@ -1,1 +1,6 @@
-$anyvm  $anyvm  ask
+# Add a line like
+#
+#gpg-client-vm gpg-server-vm allow
+#
+# to allow the VM named 'gpg-client-vm' use (but not export) the private keys
+# in 'gpg-server-vm'.
