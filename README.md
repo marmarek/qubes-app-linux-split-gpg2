@@ -24,7 +24,7 @@ This implies that the response from the server is _not_ sanitized.
 
 ## Building
 
-Add it as a component to [qubes-builder](https://github.com/QubesOS/qubes-builder) and built it.
+Add it as a component to [qubes-builder](https://www.qubes-os.org/doc/qubes-builder/) and built it.
 
 For development you can also build the Debian packet in tree.
 Just run `dpkg-buildpackage -us -uc` at the top level.
