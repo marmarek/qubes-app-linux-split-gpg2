@@ -109,6 +109,14 @@ Similar to a smartcard split-gpg2 only tries to protect the private key.
 For advanced usages consider if a specialized RPC service would be better.
 It could do things like checking what data is singed, detailed logging, exposing the encrypted content only to a VM without network, etc.
 
+## Allow key generation
+
+By setting `SPLIT_GPG2_ALLOW_KEYGEN=yes` in `split-gpg2-rc` you can allow the client to generate new keys.
+Normal usage should not need this.
+
+**Warning**: This feature is new and not much tested.
+Therefore it's not security supported!
+
 ## Copyright
 
 Copyright (C) 2014 HW42 <hw42@ipsumj.de>\
