@@ -127,12 +127,12 @@ class GpgServer:
     """
     # pylint: disable=too-many-instance-attributes,too-many-public-methods
     # type hints, enable when python >= 3.6 will be everywhere...
-    # inquire_commands: Dict[bytes, Callable[[bytes], Awaitable]]
-    # timer_delay: Dict[str, Optional[int]]
-    # hash_algos: Dict[int, HashAlgo]
-    # options: Dict[bytes, Tuple[OptionHandlingType, bytes]]
-    # commands: Dict[bytes, Callable[[bytes], Awaitable]]
-    # client_domain: str
+    inquire_commands: Dict[bytes, Callable[[bytes], Awaitable]]
+    timer_delay: Dict[str, Optional[int]]
+    hash_algos: Dict[int, HashAlgo]
+    options: Dict[bytes, Tuple[OptionHandlingType, bytes]]
+    commands: Dict[bytes, Callable[[bytes], Awaitable]]
+    client_domain: str
 
     cache_nonce_regex = re.compile(rb'\A[0-9A-F]{24}\Z')
 
