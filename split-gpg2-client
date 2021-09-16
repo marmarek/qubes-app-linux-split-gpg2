@@ -17,4 +17,5 @@ if [[ -z "$agent_socket" ]]; then
     exit 1
 fi
 
-socat "unix-listen:$agent_socket,fork,unlink-early" "exec:qrexec-client-vm $SPLIT_GPG2_SERVER_DOMAIN qubes.Gpg2"
+socat "unix-listen:$agent_socket,fork,unlink-early" \
+    "exec:qrexec-client-vm $SPLIT_GPG2_SERVER_DOMAIN qubes.Gpg2"
