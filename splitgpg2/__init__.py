@@ -825,7 +825,7 @@ class GpgServer:
     def parse_sexpr(klass, untrusted_arg):
         if len(untrusted_arg) == 0:
             raise ValueError("no sexpr")
-        sexpr, rest = klass._parse_sexpr(untrusted_arg)
+        sexpr, rest = klass._parse_sexpr(untrusted_arg, 0)
         if len(rest) != 0:
             raise ValueError("garbage at end of sexpr")
         if len(sexpr) != 1:
@@ -833,10 +833,14 @@ class GpgServer:
         return sexpr[0]
 
     @classmethod
-    def _parse_sexpr(klass, untrusted_arg):
+    def _parse_sexpr(klass, untrusted_arg, nesting):
         if len(untrusted_arg) == 0:
+            if nesting > 0:
+                raise ValueError("missing closing parenthesis")
             return ([], b'')
         elif untrusted_arg[0] == ord(')'):
+            if nesting == 0:
+                return ([], untrusted_arg)
             return ([], untrusted_arg[1:].lstrip(b' '))
 
         if untrusted_arg[0] in range(0x30, 0x40):
@@ -847,7 +851,7 @@ class GpgServer:
             value = rest[0:length]
             rest = rest[length:]
         elif untrusted_arg[0] == ord('('):
-            value, rest = klass._parse_sexpr(untrusted_arg[1:])
+            value, rest = klass._parse_sexpr(untrusted_arg[1:], nesting + 1)
         else:
             m = re.match(rb'\A([0-9a-zA-Z-_]+) ?(.*)\Z', untrusted_arg)
             if m is None:
@@ -855,7 +859,7 @@ class GpgServer:
             value = m.group(1)
             rest = m.group(2)
 
-        rest_parsed, new_rest = klass._parse_sexpr(rest)
+        rest_parsed, new_rest = klass._parse_sexpr(rest, nesting)
         return ([value] + rest_parsed, new_rest)
 
     @classmethod
