@@ -478,6 +478,14 @@ class GpgServer:
                         # option must come before cache_nonce
                         raise Filtered
                     args.append(untrusted_arg)
+                elif untrusted_arg.startswith(b'--timestamp='):
+                    # Allow --timestamp=, but set creation time to now, no
+                    # matter what the client passed.
+                    if cache_nonce_seen:
+                        # option must come before cache_nonce
+                        raise Filtered
+                    args.append(time.strftime('--timestamp=%Y%m%dT%H%M%S',
+                                              time.gmtime()).encode('ascii'))
                 elif self.cache_nonce_regex.match(untrusted_arg) \
                         and not cache_nonce_seen:
                     # Do not passthrough the cache nonce. Otherwise the client
