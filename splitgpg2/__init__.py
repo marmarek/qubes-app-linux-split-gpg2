@@ -470,7 +470,7 @@ class GpgServer:
             raise Filtered
         args = []
         if untrusted_args is not None:
-            cache_nonce_added = False
+            cache_nonce_seen = False
             for untrusted_arg in untrusted_args.split(b' '):
                 if untrusted_args == b'--no-protection':
                     # according to documentation,
@@ -479,7 +479,7 @@ class GpgServer:
                     # --no-protection
                     # --preset
                     # allow only --no-protection
-                    if cache_nonce_added:
+                    if cache_nonce_seen:
                         # option must come before cache_nonce
                         raise Filtered
                     args.append(untrusted_args)
@@ -488,9 +488,10 @@ class GpgServer:
                     # accept passphrase from the client
                     pass
                 elif self.cache_nonce_regex.match(untrusted_arg) \
-                        and not cache_nonce_added:
-                    args.append(untrusted_arg)
-                    cache_nonce_added = True
+                        and not cache_nonce_seen:
+                    # Do not passthrough the cache nonce. Otherwise the client
+                    # can set the passphrase of another unlocked key.
+                    cache_nonce_seen = True
                 else:
                     raise Filtered
 
