@@ -27,7 +27,7 @@ def log(m)
   @log_m.synchronize{@log_f.puts s}
 end
 
-# XXX: not thread safe
+# XXX: not safe against concurent startups
 begin
   UNIXSocket.new fake_s_path
   $stderr.puts 'fake socket already in use'
