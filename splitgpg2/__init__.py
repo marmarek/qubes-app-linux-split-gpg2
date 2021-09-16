@@ -827,7 +827,7 @@ class GpgServer:
             raise ValueError("no sexpr")
         sexpr, rest = klass._parse_sexpr(untrusted_arg)
         if len(rest) != 0:
-            raise RuntimeError("shold never happen")
+            raise ValueError("garbage at end of sexpr")
         return sexpr[0]
 
     @classmethod
