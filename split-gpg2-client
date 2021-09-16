@@ -17,6 +17,4 @@ if [[ -z "$agent_socket" ]]; then
     exit 1
 fi
 
-gpgconf --kill gpg-agent &>/dev/null
-
 socat "unix-listen:$agent_socket,fork,unlink-early" "exec:qrexec-client-vm $SPLIT_GPG2_SERVER_DOMAIN qubes.Gpg2"
