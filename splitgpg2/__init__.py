@@ -473,20 +473,11 @@ class GpgServer:
             cache_nonce_seen = False
             for untrusted_arg in untrusted_args.split(b' '):
                 if untrusted_args == b'--no-protection':
-                    # according to documentation,
-                    # possible options (all related to password):
-                    # --inq-passwd
-                    # --no-protection
-                    # --preset
-                    # allow only --no-protection
+                    # allow --no-protection
                     if cache_nonce_seen:
                         # option must come before cache_nonce
                         raise Filtered
                     args.append(untrusted_args)
-                elif untrusted_arg in (b'--inq-passwd', b'--preset'):
-                    # ignore other password-related options - do not
-                    # accept passphrase from the client
-                    pass
                 elif self.cache_nonce_regex.match(untrusted_arg) \
                         and not cache_nonce_seen:
                     # Do not passthrough the cache nonce. Otherwise the client
