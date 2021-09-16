@@ -828,6 +828,8 @@ class GpgServer:
         sexpr, rest = klass._parse_sexpr(untrusted_arg)
         if len(rest) != 0:
             raise ValueError("garbage at end of sexpr")
+        if len(sexpr) != 1:
+            raise ValueError("sexpr top level shold have exactly one element")
         return sexpr[0]
 
     @classmethod
