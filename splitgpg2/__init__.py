@@ -472,12 +472,12 @@ class GpgServer:
         if untrusted_args is not None:
             cache_nonce_seen = False
             for untrusted_arg in untrusted_args.split(b' '):
-                if untrusted_args == b'--no-protection':
+                if untrusted_arg == b'--no-protection':
                     # allow --no-protection
                     if cache_nonce_seen:
                         # option must come before cache_nonce
                         raise Filtered
-                    args.append(untrusted_args)
+                    args.append(untrusted_arg)
                 elif self.cache_nonce_regex.match(untrusted_arg) \
                         and not cache_nonce_seen:
                     # Do not passthrough the cache nonce. Otherwise the client
