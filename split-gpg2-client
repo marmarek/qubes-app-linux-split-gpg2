@@ -7,11 +7,15 @@ for d in /etc "${XDG_CONFIG_HOME:-$HOME/.config}"; do
     fi
 done
 
-if [ -z "$SPLIT_GPG2_SERVER_DOMAIN" ]; then
+if [[ -z "$SPLIT_GPG2_SERVER_DOMAIN" ]]; then
     SPLIT_GPG2_SERVER_DOMAIN="@default"
 fi
 
-agent_socket=`gpgconf --list-dirs | grep '^agent-socket:' | cut -d ':' -f 2`
+agent_socket="$(gpgconf --list-dirs | grep '^agent-socket:' | cut -d ':' -f 2)"
+if [[ -z "$agent_socket" ]]; then
+    echo "Failed to find gpg-agent socket path" >&2
+    exit 1
+fi
 
 gpgconf --kill gpg-agent &>/dev/null
 
