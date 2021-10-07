@@ -43,7 +43,7 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 /etc/qubes-rpc/qubes.Gpg2
-/lib/systemd/system/split-gpg2-client.service
+%_userunitdir/split-gpg2-client.service
 %{python3_sitelib}/splitgpg2
 %{python3_sitelib}/splitgpg2-*.egg-info
 /usr/share/split-gpg2/
