@@ -251,7 +251,7 @@ class GpgServer:
             self.close_on_filtered_error(e)
         except:  # pylint: disable=bare-except
             self.log.exception('Error processing command')
-            self.abort('error')
+            self.close('error')
 
     async def handle_inquire(self, inquire_commands):
         untrusted_line = await self.read_one_line_from_client()
@@ -266,7 +266,7 @@ class GpgServer:
             self.close_on_filtered_error(e)
         except:  # pylint: disable=bare-except
             self.log.exception('Error processing inquire')
-            self.abort('error')
+            self.close('error')
 
     def default_commands(self):
         return {
