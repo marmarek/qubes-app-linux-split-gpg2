@@ -220,10 +220,7 @@ class GpgServer:
 
     def close(self, reason, log_level=logging.ERROR):
         self.log.log(log_level, '%s; Closing!', reason)
-        # Closing the connection to the client is enough to cancel processing:
-        # Since it's the same socket closing the writer will also close the
-        # input. So after closing we can't read new commands or write responses.
-        # run() will terminate due to EOF.
+        self.client_reader._transport.close()
         self.client_writer.close()
         self.agent_writer.close()
 
@@ -887,26 +884,26 @@ TIMER_NAMES = {
     'SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME': 'PKDECRYPT',
 }
 
-def open_stdin_connection(*, loop=None):
+def open_stdinout_connection(*, loop=None):
     if loop is None:
         loop = asyncio.get_event_loop()
-    sock = socket.fromfd(sys.stdin.fileno(), socket.AF_UNIX, socket.SOCK_STREAM)
+
     reader = asyncio.StreamReader(loop=loop)
-    protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
-    transport, _ = loop.run_until_complete(
-        loop.connect_accepted_socket(
-            lambda: protocol, sock))
-    writer = asyncio.StreamWriter(transport, protocol, reader, loop)
+    loop.run_until_complete(loop.connect_read_pipe(
+        lambda: asyncio.StreamReaderProtocol(reader, loop=loop),
+        sys.stdin.buffer))
+
+    write_transport, write_protocol = loop.run_until_complete(
+            loop.connect_write_pipe(lambda: asyncio.streams.FlowControlMixin(loop),
+                                    sys.stdout.buffer))
+    writer = asyncio.StreamWriter(write_transport, write_protocol, None, loop)
+
     return reader, writer
 
 def main():
-    # request bi-directional socket on stdin
-    if 'QREXEC_AGENT_PID' in os.environ:
-        os.kill(int(os.environ['QREXEC_AGENT_PID']), signal.SIGUSR1)
-
     client_domain = os.environ['QREXEC_REMOTE_DOMAIN']
     loop = asyncio.get_event_loop()
-    reader, writer = open_stdin_connection()
+    reader, writer = open_stdinout_connection()
     server = GpgServer(reader, writer, client_domain)
 
     for timer in TIMER_NAMES:
