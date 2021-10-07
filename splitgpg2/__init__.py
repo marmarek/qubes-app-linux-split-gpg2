@@ -134,7 +134,7 @@ class GpgServer:
     commands: Dict[bytes, Callable[[bytes], Awaitable]]
     client_domain: str
 
-    cache_nonce_regex = re.compile(rb'\A[0-9A-F]{24}\Z')
+    cache_nonce_regex: re.Pattern = re.compile(rb'\A[0-9A-F]{24}\Z')
 
     def __init__(self, reader: asyncio.StreamReader,
                  writer: asyncio.StreamWriter, client_domain: str):
