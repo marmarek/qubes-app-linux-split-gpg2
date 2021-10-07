@@ -1,6 +1,7 @@
 [Unit]
 Description=split-gpg2 client
 ConditionPathExists=/run/qubes-service/split-gpg2-client
+Conflicts=gpg-agent.socket
 
 [Service]
 ExecStart=/usr/share/split-gpg2/split-gpg2-client
