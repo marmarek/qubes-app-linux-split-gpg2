@@ -920,7 +920,13 @@ def main():
             value = os.environ[timer]
             server.timer_delay[TIMER_NAMES[timer]] = int(value) if re.match(r'\A(0|[1-9][0-9]*)\Z', value) else None
 
-    if os.environ.get('SPLIT_GPG2_VERBOSE_NOTIFICATIONS', False) == 'yes':
+    for name in ['VERBOSE_NOTIFICATIONS', 'ALLOW_KEYGEN']:
+        name = 'SPLIT_GPG2_' + name
+        value = os.environ.get(name, None)
+        if value not in [None, 'yes', 'no']:
+            raise ValueError('bad value for %s: must be "yes" or "no", not %r' % (name, value))
+
+    if os.environ.get('SPLIT_GPG2_VERBOSE_NOTIFICATIONS', None) == 'yes':
         server.verbose_notifications = True
 
     if os.environ.get('SPLIT_GPG2_ALLOW_KEYGEN', None) == 'yes':
