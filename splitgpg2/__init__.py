@@ -865,12 +865,17 @@ class GpgServer:
 
     @classmethod
     def serialize_sexpr(klass, sexpr):
+        if not isinstance(sexpr, list):
+            raise ValueError("serialize_sexpr expects a list")
+
         def serialize_item(i):
             if isinstance(i, list):
                 return klass.serialize_sexpr(i)
-            else:
+            elif isinstance(i, bytes):
                 bi = bytes(i)
                 return b'%i:%s' % (len(bi), bi)
+            else:
+                raise ValueError("expected a list or bytes inside an sexpr")
 
         return b'(' + b''.join(serialize_item(i) for i in sexpr) + b')'
 
