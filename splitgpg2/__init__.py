@@ -819,7 +819,9 @@ class GpgServer:
     # we send the reserialized form this should be safe.
 
     @classmethod
-    def parse_sexpr(klass, untrusted_arg):
+    def parse_sexpr(klass, untrusted_arg: bytes):
+        if type(untrusted_arg) is not bytes:
+            raise TypeError("invalid type in parse_sexpr")
         if len(untrusted_arg) == 0:
             raise ValueError("no sexpr")
         sexpr, rest = klass._parse_sexpr(untrusted_arg, 0)
