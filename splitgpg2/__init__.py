@@ -827,6 +827,10 @@ class GpgServer:
             raise ValueError("garbage at end of sexpr")
         if len(sexpr) != 1:
             raise ValueError("sexpr top level shold have exactly one element")
+        if not isinstance(sexpr[0], list):
+            # We assume this in serialize_sexpr and at least for gpg this seems
+            # to be true.
+            raise ValueError("sexpr top level shold be a list")
         return sexpr[0]
 
     @classmethod
