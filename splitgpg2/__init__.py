@@ -786,6 +786,12 @@ class GpgServer:
         # limits the sexpr sizes.
 
         # XXX: Should we check/sanitize the sexpr content?
+        # Restricting the content would be probably preferable but would add a
+        # lot of code since it needs to cover different key types etc. So this
+        # needs a lot of effort and risks effectively reimplementing too much
+        # of gpg-agent. So for now we hope that gpg-agent's handling is robust.
+        # At least the code already needs to deal with mostly abitrary binary
+        # data for example when decrypting data.
 
         try:
             args = self.parse_sexpr(self.unescape_D(untrusted_args))
