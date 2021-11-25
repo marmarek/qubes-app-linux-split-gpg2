@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o pipefail
+
 for d in /etc "${XDG_CONFIG_HOME:-$HOME/.config}"; do
     rc_file="$d/split-gpg2-rc"
     if [ -r "$rc_file" ]; then
@@ -12,7 +14,8 @@ if [[ -z "$SPLIT_GPG2_SERVER_DOMAIN" ]]; then
 fi
 
 agent_socket="$(gpgconf --list-dirs | grep '^agent-socket:' | cut -d ':' -f 2)"
-if [[ -z "$agent_socket" ]]; then
+rc="$?"
+if [[ "$rc" -ne 0 ]] || [[ -z "$agent_socket" ]]; then
     echo "Failed to find gpg-agent socket path" >&2
     exit 1
 fi
