@@ -844,6 +844,13 @@ class GpgServer:
         elif untrusted_arg[0] == ord(')'):
             if nesting == 0:
                 return ([], untrusted_arg)
+            elif nesting > 20:
+                # This limit is arbitrary. The motivation is to avoid problems
+                # if gpg-agent would recurse too much based on sexpr nesting
+                # **and** would jump the guard page (for example through a big
+                # stack allocation). This is borderline too paranoid, but for
+                # now we accepted it.
+                raise ValueError("sexpr has too big nesting depth")
             return ([], untrusted_arg[1:].lstrip(b' '))
 
         if untrusted_arg[0] in range(0x30, 0x40):
