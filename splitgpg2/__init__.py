@@ -22,6 +22,7 @@
 #
 # This implements the server part. See README for details.
 
+# pylint: disable=too-many-lines
 
 import asyncio
 import enum
@@ -36,7 +37,7 @@ import string
 import subprocess
 import sys
 import time
-from typing import Optional, Dict, Callable, Awaitable, Tuple, Pattern
+from typing import Optional, Dict, Callable, Awaitable, Tuple, Pattern, List
 
 # from assuan.h
 ASSUAN_LINELENGTH = 1002
@@ -154,6 +155,7 @@ class GpgServer:
     options: Dict[bytes, Tuple[OptionHandlingType, bytes]]
     commands: Dict[bytes, Callable[[bytes], Awaitable]]
     client_domain: str
+    seen_data: bool
 
     cache_nonce_regex: re.Pattern = re.compile(rb'\A[0-9A-F]{24}\Z')
 
@@ -183,6 +185,7 @@ class GpgServer:
         self.untrusted_input_buffer = bytearray()
 
         self.update_keygrip_map()
+        self.seen_data = False
 
         debug_log = os.environ.get('SPLIT_GPG2_DEBUG_LOG', None)
         if debug_log:
@@ -389,9 +392,9 @@ class GpgServer:
 
     async def send_inquire(self, inquire, inquire_commands):
         self.client_write(b'INQUIRE ' + inquire + b'\n')
-        while True:
-            if not await self.handle_inquire(inquire_commands):
-                break
+        self.seen_data = False
+        while await self.handle_inquire(inquire_commands):
+            pass
 
     def fake_respond(self, response):
         self.client_write(response + b'\n')
@@ -787,7 +790,7 @@ class GpgServer:
         if untrusted_args is not None:
             raise Filtered('unexpected arguments to KEYPARAM inquire')
         await self.send_inquire(b'KEYPARAM', {
-            b'D': self.inquire_command_D,
+            b'D': self.inquire_command_D_KEYGEN,
             b'END': self.inquire_command_END,
         })
 
@@ -802,10 +805,19 @@ class GpgServer:
         })
 
     async def inquire_CIPHERTEXT(self, untrusted_args):
+        """
+        Handle a CIPHERTEXT inquiry
+
+        The expected response is an sexp of one of the following forms:
+
+        - (enc-val (ecdh (s <s>) (e <e>))) for ECDH
+        - (enc-val (rsa (a <A>))) for RSA
+        - (enc-val (elg (a <A>) (b <b>))) for ElGamal
+        """
         if untrusted_args is not None:
             raise Filtered('unexpected arguments to CIPHERTEXT inquire')
         await self.send_inquire(b'CIPHERTEXT', {
-            b'D': self.inquire_command_D,
+            b'D': self.inquire_command_D_CIPHERTEXT,
             b'END': self.inquire_command_END,
         })
 
@@ -815,25 +827,89 @@ class GpgServer:
     #
     # each function returns whether further responses are expected
 
-    async def inquire_command_D(self, *, untrusted_args):
+    @classmethod
+    def check_letter_sexp(cls, start_string: bytes, untrusted_sexp,
+                          expected_ty: type) -> None:
+        """
+        Check that ``untrusted_sexp`` is a list of length 2 that starts with
+        ``start_string`` and has a second element of type ``expected_ty``.
+        Returns the second element.
+        """
+        if not isinstance(untrusted_sexp, list) or len(untrusted_sexp) != 2:
+            raise Filtered
+        untrusted_first, untrusted_last = untrusted_sexp
+        if untrusted_first != start_string:
+            raise ValueError('Invalid head of sexp')
+        if not isinstance(untrusted_last, expected_ty):
+            raise ValueError('Invalid type of sexp tail')
+        return untrusted_last
+
+    def inquire_command_D_CIPHERTEXT(self, *, untrusted_args: bytes):
+        def check_mpi_list(names: List[bytes], *, untrusted_sexp: List[object]):
+            """
+            Check that the elements in ``untrusted_sexp`` are length-2
+            lists.  The first element in each list is expected to be
+            equal to the corresponding element in ``names``, and the
+            second to be of type bytes.  If any of these do not hold,
+            raise :py:class:`Filtered`.
+            """
+            if len(names) != len(untrusted_sexp):
+                raise Filtered
+            for (name, untrusted_value) in zip(names, untrusted_sexp):
+                self.check_letter_sexp(name, untrusted_value, bytes)
+
+        def validate_ciphertext_sexp(*, untrusted_sexp):
+            """
+            Check that the ``untrusted_sexp`` is a valid offer of a ciphertext
+            for decryption.
+            """
+            untrusted_sexp = self.check_letter_sexp(
+                    b'enc-val', untrusted_sexp, list)
+            if len(untrusted_sexp) < 2:
+                raise ValueError('No MPIs found')
+            untrusted_alg = untrusted_sexp[0]
+            if untrusted_alg == b'ecdh':
+                check_mpi_list((b's', b'e'), untrusted_sexp=untrusted_sexp[1:])
+            elif untrusted_alg == b'rsa':
+                check_mpi_list((b'a',), untrusted_sexp=untrusted_sexp[1:])
+            elif untrusted_alg == b'elg':
+                check_mpi_list((b'a', b'b'), untrusted_sexp=untrusted_sexp[1:])
+            else:
+                raise ValueError("Unknown encryption algorithm")
+
+        return self.inquire_command_D(validate_ciphertext_sexp,
+                                      untrusted_args=untrusted_args)
+
+    def inquire_command_D_KEYGEN(self, *, untrusted_args: bytes):
+        def validate_keygen_sexp(*, untrusted_sexp):
+            """
+            Check that the ``untrusted_sexp`` is a valid offer of a ciphertext
+            for key generation.
+
+            FIXME: this is not a sufficient check.
+            """
+            self.check_letter_sexp(b'genkey', untrusted_sexp, list)
+
+        return self.inquire_command_D(validate_keygen_sexp,
+                                      untrusted_args=untrusted_args)
+
+    async def inquire_command_D(self, validate_sexp, *, untrusted_args):
         # We parse and then reserialize the sexpr. Currently we assume that the
         # sexpr fits in one assuan line. This line length also implicitly
         # limits the sexpr sizes.
 
-        # XXX: Should we check/sanitize the sexpr content?
-        # Restricting the content would be probably preferable but would add a
-        # lot of code since it needs to cover different key types etc. So this
-        # needs a lot of effort and risks effectively reimplementing too much
-        # of gpg-agent. So for now we hope that gpg-agent's handling is robust.
-        # At least the code already needs to deal with mostly abitrary binary
-        # data for example when decrypting data.
-
+        if self.seen_data:
+            raise Filtered
         try:
-            args = self.parse_sexpr(self.unescape_D(untrusted_args))
+            untrusted_sexp = self.parse_sexpr(self.unescape_D(untrusted_args))
+            validate_sexp(untrusted_sexp=untrusted_sexp)
         except ValueError as e:
             raise Filtered from e
+        else:
+            args = untrusted_sexp
 
         self.agent_write(b'D ' + self.escape_D(self.serialize_sexpr(args)) + b'\n')
+        self.seen_data = True
         return True
 
     @staticmethod
@@ -917,7 +993,7 @@ class GpgServer:
 
         def serialize_item(item):
             if isinstance(item, list):
-                return cls.serialize_sexpr(item)
+                return b'(' + b''.join(serialize_item(j) for j in item) + b')'
             if isinstance(item, bytes):
                 bytes_item = bytes(item)
                 return b'%i:%s' % (len(bytes_item), bytes_item)
