@@ -42,6 +42,19 @@ from typing import Optional, Dict, Callable, Awaitable, Tuple, Pattern, List
 # from assuan.h
 ASSUAN_LINELENGTH = 1002
 
+known_eddsa_curves = { b'Ed25519', b'Ed448' }
+
+known_safeecdh_curves = { b'Curve25519', b'X448' }
+
+known_other_curves = {
+    b'NIST P-256',
+    b'NIST P-384',
+    b'NIST P-521',
+    b'brainpoolP256r1',
+    b'brainpoolP384r1',
+    b'brainpoolP512r1',
+    b'secp256k1',
+}
 
 class GPGErrorCode:
     # see gpg-error.h
@@ -881,14 +894,64 @@ class GpgServer:
                                       untrusted_args=untrusted_args)
 
     def inquire_command_D_KEYGEN(self, *, untrusted_args: bytes):
+        def validate_bits_len(untrusted_sexp):
+            untrusted_bits = self.check_letter_sexp(
+                    b'nbits', untrusted_sexp, bytes)
+            sanitize_int(untrusted_bits, 1024, 4096)
+
+        def check_curve_flags(untrusted_curve, untrusted_flags):
+            # Non-Edwards curves are easy; check those first
+            if untrusted_curve in known_other_curves:
+                if untrusted_flags != [b'nocomp']:
+                    raise ValueError('Invalid flags for non-Edwards curve')
+                return
+
+            # Now the Edwards curves
+            if untrusted_curve in known_eddsa_curves:
+                allowed_flags = (b'eddsa', b'comp')
+            elif untrusted_curve in known_safeecdh_curves:
+                allowed_flags = (b'comp', b'djb-tweak')
+            else:
+                raise ValueError('Unknown elliptic curve')
+            if len(untrusted_flags) > 2:
+                raise ValueError('Too many flags for Edwards curve')
+            if b'comp' not in untrusted_flags:
+                raise ValueError('Edwards curve keys must be compressed')
+            for untrusted_flag in untrusted_flags:
+                if untrusted_flag not in allowed_flags:
+                    raise ValueError('Forbidden flag sent')
+
         def validate_keygen_sexp(*, untrusted_sexp):
             """
-            Check that the ``untrusted_sexp`` is a valid offer of a ciphertext
-            for key generation.
-
-            FIXME: this is not a sufficient check.
+            Check that the ``untrusted_sexp`` is a valid set of key generation
+            parameters.
             """
-            self.check_letter_sexp(b'genkey', untrusted_sexp, list)
+            untrusted_sexp = self.check_letter_sexp(
+                    b'genkey', untrusted_sexp, list)
+            if len(untrusted_sexp) < 2:
+                raise ValueError('No key parameters')
+            untrusted_alg = untrusted_sexp[0]
+            if untrusted_alg == b'ecc':
+                if len(untrusted_sexp) != 3:
+                    raise ValueError('invalid elliptic curve parameters')
+                untrusted_curve = self.check_letter_sexp(
+                        b'curve', untrusted_sexp[1], bytes)
+                untrusted_flags = untrusted_sexp[2]
+                if not isinstance(untrusted_flags, list):
+                    raise ValueError('Flags must be a list')
+                if len(untrusted_flags) < 2 or untrusted_flags[0] != b'flags':
+                    raise ValueError(
+                            "Key generation flags must begin with b'flags'")
+                check_curve_flags(untrusted_curve, untrusted_flags[1:])
+            elif untrusted_alg in (b'rsa', b'openpgp-elg'):
+                if len(untrusted_sexp) != 2:
+                    raise ValueError('invalid ElGamel or RSA parameters')
+                validate_bits_len(untrusted_sexp[1])
+            elif untrusted_alg == b'dsa':
+                if (len(untrusted_sexp) != 3 or
+                    untrusted_sexp[2] != [b'qbits', b'256']):
+                    raise ValueError('invalid DSA parameters')
+                validate_bits_len(untrusted_sexp[1])
 
         return self.inquire_command_D(validate_keygen_sexp,
                                       untrusted_args=untrusted_args)
