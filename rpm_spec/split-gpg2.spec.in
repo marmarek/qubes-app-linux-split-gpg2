@@ -10,6 +10,7 @@ License:        GPLv2+
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  python3-rpm-macros
+BuildRequires:  systemd-rpm-macros
 BuildRequires:  python%{python3_pkgversion}-setuptools
 Requires:       socat
 Requires:       bash
@@ -33,10 +34,10 @@ rm -rf $RPM_BUILD_ROOT
 make install DESTDIR="$RPM_BUILD_ROOT" PYTHON=%{__python3}
 
 %post
-systemctl enable split-gpg2-client
+%systemd_user_post split-gpg2-client.service
 
 %preun
-systemctl disable split-gpg2-client
+%systemd_user_preun split-gpg2-client.service
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -44,6 +45,7 @@ rm -rf $RPM_BUILD_ROOT
 %files
 /etc/qubes-rpc/qubes.Gpg2
 %_userunitdir/split-gpg2-client.service
+%_userpresetdir/70-split-gpg2-client.preset
 %{python3_sitelib}/splitgpg2
 %{python3_sitelib}/splitgpg2-*.egg-info
 /usr/share/split-gpg2/
