@@ -349,8 +349,8 @@ class GpgServer:
         timestamp_path.touch()
 
     def timestamp_path(self, name) -> pathlib.Path:
-        return pathlib.Path('{}_split-gpg2-timestamp_{}'.format(
-            self.agent_socket_path, name))
+        return pathlib.Path('{}_split-gpg2-timestamp_{}_{}'.format(
+            self.agent_socket_path, name, self.client_domain))
 
     def client_write(self, data):
         self.log_io('C <<<', data)
