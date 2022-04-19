@@ -4,7 +4,7 @@ export PYBUILD_NAME = splitgpg2
 
 override_dh_auto_install:
 	dh_auto_install
-	$(MAKE) install-other DESTDIR=debian/split-gpg2
+	$(MAKE) install-other DESTDIR=debian/tmp
 
 %:
 	dh $@ --with=python3 --buildsystem=pybuild

@@ -29,3 +29,15 @@ Depends:
  ${python3:Depends},
 Description: Python package splitgpg2
  Python package splitgpg2
+
+Package: split-gpg2-tests
+Section: admin
+Architecture: all
+# add python3-dogtail, when packaged for Debian
+Depends:
+ split-gpg2,
+ python3-pyatspi,
+ dovecot-imapd,
+ xdotool,
+ ${misc:Depends}
+Description: Helper files for Split GPG2 tests

@@ -19,16 +19,16 @@ import setuptools
 
 if __name__ == '__main__':
     setuptools.setup(
-        name='splitgpg2',
+        name='splitgpg2tests',
         version='0.2',
         author='Invisible Things Lab',
         author_email='marmarek@invisiblethingslab.com',
         description='Split GPG 2',
         license='GPL2+',
         url='https://www.qubes-os.org/',
-        packages=['splitgpg2'],
+        packages=['splitgpg2tests'],
         entry_points={
             'qubes.tests.extra.for_template':
-                'splitgpg2 = splitgpg2.tests:list_tests',
+                'splitgpg2 = splitgpg2tests.tests:list_tests',
         }
     )

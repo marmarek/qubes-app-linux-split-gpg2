@@ -9,6 +9,9 @@ License:        GPLv2+
 
 Source0: split-gpg2-%{version}.tar.gz
 
+BuildRequires: make
+BuildRequires: python3-devel
+
 %description
 split-gpg2 allows you to run the gpg2 client in a different Qubes-Domain than
 the gpg-agent.
@@ -21,7 +24,8 @@ This package contains the Qubes RPC policy for split-gpg2.
 %build
 
 %install
-install -D qubes.Gpg2.policy $RPM_BUILD_ROOT/etc/qubes-rpc/policy/qubes.Gpg2
+install -D -m0644 qubes.Gpg2.policy $RPM_BUILD_ROOT/etc/qubes-rpc/policy/qubes.Gpg2
+make install-python-dom0 DESTDIR="$RPM_BUILD_ROOT" PYTHON=%{__python3}
 
 %post
 
@@ -29,6 +33,8 @@ install -D qubes.Gpg2.policy $RPM_BUILD_ROOT/etc/qubes-rpc/policy/qubes.Gpg2
 
 %files
 %config(noreplace) %attr(0664,root,qubes) /etc/qubes-rpc/policy/qubes.Gpg2
+%{python3_sitelib}/splitgpg2tests
+%{python3_sitelib}/splitgpg2tests-*.egg-info
 
 %changelog
 @CHANGELOG@

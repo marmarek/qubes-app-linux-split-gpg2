@@ -1,0 +1,6 @@
+etc/qubes-rpc/qubes.Gpg2
+etc/gnupg/gpg.conf
+usr/lib/systemd/user/split-gpg2-client.service
+usr/lib/systemd/user-preset/70-split-gpg2-client.preset
+usr/share/split-gpg2/
+usr/share/doc/split-gpg2/
