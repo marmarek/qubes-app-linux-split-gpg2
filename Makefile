@@ -16,11 +16,14 @@ install-python:
 install-other:
 	install -d $(DESTDIR)/usr/share/split-gpg2
 	install -d $(DESTDIR)/etc/qubes-rpc
+	install -d $(DESTDIR)/etc/gnupg
 	install -d $(DESTDIR)/usr/lib/systemd/user/
 	install -d $(DESTDIR)/usr/lib/systemd/user-preset/
 	install -d $(DESTDIR)/usr/share/doc/split-gpg2
 	install -d $(DESTDIR)/usr/share/doc/split-gpg2/examples
-	install split-gpg2-client $(DESTDIR)/usr/share/split-gpg2/
+	install -m 775 split-gpg2-client $(DESTDIR)/usr/share/split-gpg2/
+	install -m 755 gpg-agent-placeholder $(DESTDIR)/usr/share/split-gpg2/
+	install -m 644 gpg.conf $(DESTDIR)/etc/gnupg/gpg.conf
 	install -m 755 qubes.Gpg2.service $(DESTDIR)/etc/qubes-rpc/qubes.Gpg2
 	install -m 644 split-gpg2-client.service $(DESTDIR)/usr/lib/systemd/user/
 	install -m 644 split-gpg2-client.preset $(DESTDIR)/usr/lib/systemd/user-preset/70-split-gpg2-client.preset

@@ -44,6 +44,7 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 /etc/qubes-rpc/qubes.Gpg2
+/etc/gnupg/gpg.conf
 %_userunitdir/split-gpg2-client.service
 %_userpresetdir/70-split-gpg2-client.preset
 %{python3_sitelib}/splitgpg2

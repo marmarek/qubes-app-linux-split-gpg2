@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -eo pipefail
+
+# prevent starting real gpg-agent locally if it's redirected via split-gpg2
+if [ -e /run/qubes-service/split-gpg2-client ]; then
+    exit 0
+fi
+# otherwise, launch gpg-agent
+gpgagent=$(gpgconf --list-components | grep ^gpg-agent: | cut -d ':' -f 3)
+exec "$gpgagent" "$@"
