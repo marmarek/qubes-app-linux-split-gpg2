@@ -74,6 +74,7 @@ class Filtered(Exception):
 
 @enum.unique
 class OptionHandlingType(enum.Enum):
+    # pylint: disable=invalid-name
     fake = 1
     verify = 2
     override = 3
@@ -100,6 +101,7 @@ class SubKeyInfo:
 
 @enum.unique
 class ServerState(enum.Enum):
+    # pylint: disable=invalid-name
     client_command = 1  # waiting for client command
     client_inquire = 2  # waiting for client response for inquire
     agent_response = 3  # waiting for agent response
@@ -196,8 +198,8 @@ class GpgServer:
     async def connect_agent(self):
         try:
             subprocess.check_call(['gpgconf', '--launch', 'gpg-agent'])
-        except subprocess.CalledProcessError:
-            raise StartFailed
+        except subprocess.CalledProcessError as e:
+            raise StartFailed from e
 
         dirs = subprocess.check_output(['gpgconf', '--list-dirs'])
         if self.allow_keygen:
@@ -220,6 +222,7 @@ class GpgServer:
 
     def close(self, reason, log_level=logging.ERROR):
         self.log.log(log_level, '%s; Closing!', reason)
+        # pylint: disable=protected-access
         self.client_reader._transport.close()
         self.client_writer.close()
         self.agent_writer.close()
@@ -243,8 +246,8 @@ class GpgServer:
             untrusted_cmd, untrusted_args = extract_args(untrusted_line)
             try:
                 command = self.commands[untrusted_cmd]
-            except KeyError:
-                raise Filtered
+            except KeyError as e:
+                raise Filtered from e
             await command(untrusted_args=untrusted_args)
         except Filtered as e:
             self.log.exception(e)
@@ -259,8 +262,8 @@ class GpgServer:
             untrusted_cmd, untrusted_args = extract_args(untrusted_line)
             try:
                 inquire_command = inquire_commands[untrusted_cmd]
-            except KeyError:
-                raise Filtered
+            except KeyError as e:
+                raise Filtered from e
             return await inquire_command(untrusted_args=untrusted_args)
         except Filtered as e:
             self.close_on_filtered_error(e)
@@ -415,8 +418,8 @@ class GpgServer:
         try:
             action, opts = self.options[untrusted_name]
             name = untrusted_name
-        except KeyError:
-            raise Filtered
+        except KeyError as e:
+            raise Filtered from e
 
         if action == OptionHandlingType.override:
             if opts is not None:
@@ -534,7 +537,7 @@ class GpgServer:
             raise ProtocolError('SETKEYDESC failed')
 
     @staticmethod
-    def estream_unescape(s):
+    def estream_unescape(escaped):
         """Undo es_write_sanitized()"""
 
         char_map = { b'\\': b'\\',
@@ -544,27 +547,27 @@ class GpgServer:
                      b'v': b'\v',
                      b'b': b'\b',
                      b'0': b'\0'}
-        def map_back(m):
-            c = m.group(1)
-            if c in char_map:
-                return char_map[c]
-            else:
-                return bytes([int(c[1:2], 16)])
+        def map_back(match):
+            char = match.group(1)
+            if char in char_map:
+                return char_map[char]
+            return bytes([int(char[1:2], 16)])
 
 
-        return re.sub(rb'\\(\\|n|r|f|v|b|0|x[0-9-af]{2})', map_back, s)
+        return re.sub(rb'\\(\\|n|r|f|v|b|0|x[0-9-af]{2})', map_back, escaped)
 
     @staticmethod
-    def percent_plus_escape(s):
-        unescaped_ascii = [c for c in range(0x20, 0x7e) if c not in [c for c in b'+"% ']]
-        def esc(c):
-            if c in unescaped_ascii:
-                return bytes([c])
-            elif c == ord(' '):
+    def percent_plus_escape(to_escape):
+        unescaped_ascii = [
+            c for c in range(0x20, 0x7e)
+            if c not in list(b'+"% ')]
+        def esc(char):
+            if char in unescaped_ascii:
+                return bytes([char])
+            if char == ord(' '):
                 return b'+'
-            else:
-                return b'%%%02x' % c
-        return b''.join(esc(c) for c in s)
+            return b'%%%02x' % char
+        return b''.join(esc(c) for c in to_escape)
 
     def update_keygrip_map(self):
         out = subprocess.check_output(['gpg', '--list-secret-keys', '--with-colons'])
@@ -608,6 +611,7 @@ class GpgServer:
     async def command_SETKEYDESC(self, untrusted_args: Optional[bytes]):
         # Fake a positive respose. We always send a SETKEYDESC after
         # SETKEY/SIGKEY.
+        # pylint: disable=unused-argument
         self.fake_respond(b'OK')
 
     async def command_PKDECRYPT(self, untrusted_args: Optional[bytes]):
@@ -621,8 +625,8 @@ class GpgServer:
         try:
             alg = int(untrusted_alg)
             alg_param = self.hash_algos[alg]
-        except (KeyError, ValueError):
-            raise Filtered
+        except (KeyError, ValueError) as e:
+            raise Filtered from e
 
         if not untrusted_hash:
             raise Filtered
@@ -741,8 +745,8 @@ class GpgServer:
         untrusted_inq, untrusted_inq_args = extract_args(untrusted_args)
         try:
             inquire = expected_inquires[untrusted_inq]
-        except KeyError:
-            raise Filtered
+        except KeyError as e:
+            raise Filtered from e
         await inquire(untrusted_args=untrusted_inq_args)
 
     # region INQUIRE commands sent from gpg-agent
@@ -795,8 +799,8 @@ class GpgServer:
 
         try:
             args = self.parse_sexpr(self.unescape_D(untrusted_args))
-        except ValueError:
-            raise Filtered
+        except ValueError as e:
+            raise Filtered from e
 
         self.agent_write(b'D ' + self.escape_D(self.serialize_sexpr(args)) + b'\n')
         return True
@@ -825,12 +829,13 @@ class GpgServer:
     # we send the reserialized form this should be safe.
 
     @classmethod
-    def parse_sexpr(klass, untrusted_arg: bytes):
+    def parse_sexpr(cls, untrusted_arg: bytes):
+        # pylint: disable=unidiomatic-typecheck
         if type(untrusted_arg) is not bytes:
             raise TypeError("invalid type in parse_sexpr")
         if len(untrusted_arg) == 0:
             raise ValueError("no sexpr")
-        sexpr, rest = klass._parse_sexpr(untrusted_arg, 0)
+        sexpr, rest = cls._parse_sexpr(untrusted_arg, 0)
         if len(rest) != 0:
             raise ValueError("garbage at end of sexpr")
         if len(sexpr) != 1:
@@ -842,15 +847,15 @@ class GpgServer:
         return sexpr[0]
 
     @classmethod
-    def _parse_sexpr(klass, untrusted_arg, nesting):
+    def _parse_sexpr(cls, untrusted_arg, nesting):
         if len(untrusted_arg) == 0:
             if nesting > 0:
                 raise ValueError("missing closing parenthesis")
             return ([], b'')
-        elif untrusted_arg[0] == ord(')'):
+        if untrusted_arg[0] == ord(')'):
             if nesting == 0:
                 return ([], untrusted_arg)
-            elif nesting > 20:
+            if nesting > 20:
                 # This limit is arbitrary. The motivation is to avoid problems
                 # if gpg-agent would recurse too much based on sexpr nesting
                 # **and** would jump the guard page (for example through a big
@@ -867,30 +872,29 @@ class GpgServer:
             value = rest[0:length]
             rest = rest[length:]
         elif untrusted_arg[0] == ord('('):
-            value, rest = klass._parse_sexpr(untrusted_arg[1:], nesting + 1)
+            value, rest = cls._parse_sexpr(untrusted_arg[1:], nesting + 1)
         else:
-            m = re.match(rb'\A([0-9a-zA-Z-_]+) ?(.*)\Z', untrusted_arg)
-            if m is None:
+            match = re.match(rb'\A([0-9a-zA-Z-_]+) ?(.*)\Z', untrusted_arg)
+            if match is None:
                 raise ValueError("Invalid literal")
-            value = m.group(1)
-            rest = m.group(2)
+            value = match.group(1)
+            rest = match.group(2)
 
-        rest_parsed, new_rest = klass._parse_sexpr(rest, nesting)
+        rest_parsed, new_rest = cls._parse_sexpr(rest, nesting)
         return ([value] + rest_parsed, new_rest)
 
     @classmethod
-    def serialize_sexpr(klass, sexpr):
+    def serialize_sexpr(cls, sexpr):
         if not isinstance(sexpr, list):
             raise ValueError("serialize_sexpr expects a list")
 
-        def serialize_item(i):
-            if isinstance(i, list):
-                return klass.serialize_sexpr(i)
-            elif isinstance(i, bytes):
-                bi = bytes(i)
-                return b'%i:%s' % (len(bi), bi)
-            else:
-                raise ValueError("expected a list or bytes inside an sexpr")
+        def serialize_item(item):
+            if isinstance(item, list):
+                return cls.serialize_sexpr(item)
+            if isinstance(item, bytes):
+                bytes_item = bytes(item)
+                return b'%i:%s' % (len(bytes_item), bytes_item)
+            raise ValueError("expected a list or bytes inside an sexpr")
 
         return b'(' + b''.join(serialize_item(i) for i in sexpr) + b')'
 
@@ -918,8 +922,9 @@ def open_stdinout_connection(*, loop=None):
         sys.stdin.buffer))
 
     write_transport, write_protocol = loop.run_until_complete(
-            loop.connect_write_pipe(lambda: asyncio.streams.FlowControlMixin(loop),
-                                    sys.stdout.buffer))
+            loop.connect_write_pipe(
+                lambda: asyncio.streams.FlowControlMixin(loop),
+                sys.stdout.buffer))
     writer = asyncio.StreamWriter(write_transport, write_protocol, None, loop)
 
     return reader, writer
@@ -930,16 +935,19 @@ def main():
     reader, writer = open_stdinout_connection()
     server = GpgServer(reader, writer, client_domain)
 
-    for timer in TIMER_NAMES:
-        if timer in os.environ:
-            value = os.environ[timer]
-            server.timer_delay[TIMER_NAMES[timer]] = int(value) if re.match(r'\A(0|[1-9][0-9]*)\Z', value) else None
+    for timer_var, timer_name in TIMER_NAMES.items():
+        if timer_var in os.environ:
+            value = os.environ[timer_var]
+            server.timer_delay[timer_name] = int(value) \
+                if re.match(r'\A(0|[1-9][0-9]*)\Z', value) \
+                else None
 
     for name in ['VERBOSE_NOTIFICATIONS', 'ALLOW_KEYGEN']:
         name = 'SPLIT_GPG2_' + name
         value = os.environ.get(name, None)
         if value not in [None, 'yes', 'no']:
-            raise ValueError('bad value for %s: must be "yes" or "no", not %r' % (name, value))
+            raise ValueError('bad value for %s: '
+                             'must be "yes" or "no", not %r' % (name, value))
 
     if os.environ.get('SPLIT_GPG2_VERBOSE_NOTIFICATIONS', None) == 'yes':
         server.verbose_notifications = True
