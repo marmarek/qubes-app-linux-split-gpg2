@@ -1,0 +1,32 @@
+include:
+  - project: 'QubesOS/qubes-continuous-integration'
+    file: '/r4.1/gitlab-base.yml'
+  - project: 'QubesOS/qubes-continuous-integration'
+    file: '/r4.1/gitlab-dom0.yml'
+  - project: 'QubesOS/qubes-continuous-integration'
+    file: '/r4.1/gitlab-vm.yml'
+
+checks:tests:
+  stage: checks
+  tags:
+    - docker
+  variables:
+    ENABLE_SLOW_TESTS: 1
+    USER: gitlab-runner
+  before_script:
+    - pip3 install --quiet -r ci/requirements.txt
+  script:
+    - python3 setup.py build
+    - python3 -m coverage run -m unittest discover -v -p 'test_*.py'
+  after_script:
+    - ci/codecov-wrapper
+
+checks:pylint:
+  stage: checks
+  tags:
+    - docker
+  before_script:
+    - pip3 install --quiet -r ci/requirements.txt
+  script:
+    - pylint splitgpg2
+
