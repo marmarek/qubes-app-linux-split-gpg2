@@ -686,7 +686,7 @@ class GpgServer:
         # We don't support smartcard daemon commands, but fake enough that the
         # search for a default key doesn't fail.
 
-        if untrusted_args != b'SERIALNO openpgp':
+        if untrusted_args not in (b'SERIALNO openpgp', b'SERIALNO'):
             raise Filtered
 
         self.fake_respond(
