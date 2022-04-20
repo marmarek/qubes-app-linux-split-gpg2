@@ -52,6 +52,8 @@ class TC_Server(TestCase):
     key_uid = 'user@localhost'
 
     def setup_server(self, reader, writer):
+        # tests assume certain responses - force specific locale
+        os.environ['LC_ALL'] = 'C'
         gpg_server = GpgServer(reader, writer, 'testvm')
         # key generation tests - allow non-interactive operation
         if self.id().rsplit('.', 1)[-1] in ('test_001_genkey',
