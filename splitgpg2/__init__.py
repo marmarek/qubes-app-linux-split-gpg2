@@ -458,7 +458,22 @@ class GpgServer:
 
     async def command_HAVEKEY(self, untrusted_args: Optional[bytes]):
         # upper keygrip limit is arbitary
-        args = self.verify_keygrip_arguments(1, 200, untrusted_args)
+        if untrusted_args.startswith(b'--list'):
+            if b'=' in untrusted_args:
+                try:
+                    limit = int(untrusted_args[len(b'--list='):])
+                except ValueError as e:
+                    raise Filtered from e
+                # 1000 is the default value used by gpg2
+                if limit < 0 or limit > 1000:
+                    raise Filtered
+                args = b'--list=%d' % limit
+            else:
+                if untrusted_args != b'--list':
+                    raise Filtered
+                args = b'--list'
+        else:
+            args = self.verify_keygrip_arguments(1, 200, untrusted_args)
         await self.send_agent_command(b'HAVEKEY', args)
 
     async def command_KEYINFO(self, untrusted_args: Optional[bytes]):
