@@ -89,6 +89,19 @@ Expire-Date: 0
         (stdout, stderr) = p.communicate(pubkey)
         self.assertEquals(p.returncode, 0,
             '{} failed: {}{}'.format(cmd, stdout.decode(), stderr.decode()))
+        # and set as trusted
+        cmd = 'gpg2 --with-colons --list-key user@localhost'
+        p = self.frontend.run(cmd, passio_popen=True, passio_stderr=True)
+        (stdout, stderr) = p.communicate()
+        self.assertEquals(p.returncode, 0,
+            '{} failed: {}{}'.format(cmd, stdout.decode(), stderr.decode()))
+        fpr = [l for l in stdout.splitlines() if l.startswith(b'fpr:')][0]
+        cmd = 'gpg2 --with-colons --import-ownertrust'
+        p = self.frontend.run(cmd, passio_popen=True, passio_stderr=True)
+        (stdout, stderr) = p.communicate(
+            fpr.replace(b'fpr:::::::::', b'') + b'6:\n')
+        self.assertEquals(p.returncode, 0,
+            '{} failed: {}{}'.format(cmd, stdout.decode(), stderr.decode()))
 
     def fake_confirmation(self, generate=False):
         # fake confirmation
