@@ -150,41 +150,81 @@ class TC_Server(TestCase):
                 p.returncode, stdout.decode(), stderr.decode()))
 
     def test_001_genkey(self):
-        keygen_params = """Key-Type: RSA
-Key-Length: 2048
+        def do_test(ty, subkey_ty, length1, length2, counter):
+            with self.subTest(repr((ty, subkey_ty, length1, length2, counter))):
+                email = ('a' + str(counter) if counter else '') + self.key_uid
+                param = 'Length' if len(ty) == 3 else 'Curve'
+                keygen_params = """Key-Type: {}
+Key-{}: {}
+Key-Usage: sign
+Subkey-Type: {}
+Subkey-{}: {}
+Subkey-Usage: encrypt
 Name-Real: Joe Tester
 Name-Email: {}
+Expire-Date: 0
 %no-protection
 %commit
-""".format(self.key_uid)
-        p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
-            'gpg', '--batch', '--gen-key',
-            env=self.test_environ,
-            stderr=subprocess.PIPE, stdout=subprocess.PIPE,
-            stdin=subprocess.PIPE))
-        stdout, stderr = self.loop.run_until_complete(p.communicate(
-            input=keygen_params.encode()))
-        if p.returncode:
-            self.fail('gpg2 --gen-key exit with {}: {}{}'.format(
-                p.returncode, stdout.decode(), stderr.decode()))
+""".format(ty, param, length1, subkey_ty, param, length2,
+           email)
+                p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
+                    'gpg', '--batch', '--gen-key', '--expert',
+                    env=self.test_environ,
+                    stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stdin=subprocess.PIPE))
+                stdout, stderr = self.loop.run_until_complete(p.communicate(
+                    input=keygen_params.encode()))
+                if p.returncode:
+                    self.fail('gpg2 --gen-key exit with {}: {}{}'.format(
+                        p.returncode, stdout.decode(), stderr.decode()))
 
-        self.request_timer_mock.assert_called_with('PKSIGN')
+                self.request_timer_mock.assert_called_with('PKSIGN')
 
-        # "export" public key to server keyring
-        shutil.copy(self.gpg_dir.name + '/pubring.kbx',
-                    self.gpg_dir.name + '/server/pubring.kbx')
-        shutil.copy(self.gpg_dir.name + '/trustdb.gpg',
-                    self.gpg_dir.name + '/server/trustdb.gpg')
-        # verify the key is there bypassing splitgpg2, test one thing at a time
-        p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
-            'gpg', '--with-colons', '-K', self.key_uid,
-            stderr=subprocess.PIPE, stdout=subprocess.PIPE))
-        stdout, stderr = self.loop.run_until_complete(p.communicate())
-        if p.returncode:
-            self.fail('generated key not found: {}{}'.format(
-                stdout.decode(), stderr.decode()))
-        self.assertIn(b'sec:u:', stdout)
-        self.assertIn(self.key_uid.encode(), stdout)
+                # "export" public key to server keyring
+                shutil.copy(self.gpg_dir.name + '/pubring.kbx',
+                            self.gpg_dir.name + '/server/pubring.kbx')
+                shutil.copy(self.gpg_dir.name + '/trustdb.gpg',
+                            self.gpg_dir.name + '/server/trustdb.gpg')
+                # verify the key is there bypassing splitgpg2, test one thing at
+                # a time
+                p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
+                    'gpg', '--with-colons', '-K', email,
+                    stderr=subprocess.PIPE, stdout=subprocess.PIPE))
+                stdout, stderr = self.loop.run_until_complete(p.communicate())
+                if p.returncode:
+                    self.fail('generated key not found: {}{}'.format(
+                        stdout.decode(), stderr.decode()))
+                self.assertIn(b'sec:u:', stdout)
+                self.assertIn(self.key_uid.encode(), stdout)
+        config_args = ('gpg', '--with-colons', '--no-options', '--list-config',
+                       '-o/dev/stdout', 'curve')
+        output = subprocess.run(config_args,
+                capture_output=True,
+                check=True,
+                stdin=subprocess.DEVNULL).stdout.decode('ascii', 'strict')
+        assert output.startswith('cfg:curve:')
+        curves = output[10:].strip().split(';')
+        do_test('RSA', 'RSA', 2048, 2048, 0)
+        do_test('DSA', 'ELG', 2048, 2048, 1)
+        do_test('ECDSA', 'ECDH', 'NIST P-256', 'NIST P-256', 2)
+        do_test('ECDSA', 'ECDH', 'NIST P-384', 'NIST P-384', 3)
+        do_test('ECDSA', 'ECDH', 'NIST P-521', 'NIST P-521', 4)
+        do_test('ECDSA', 'ECDH', 'secp256k1', 'secp256k1', 6)
+        do_test('EDDSA', 'ECDH', 'Ed25519', 'Curve25519', 7)
+
+        counter = 20
+        for i in curves:
+            counter += 1
+            if i.startswith('ed'):
+                kex_version = 'cv' + i[2:]
+                assert kex_version in curves, f'found {i} but not {kex_version}'
+                do_test('EDDSA', 'ECDH', i, kex_version, counter)
+            elif i.startswith('cv'):
+                assert 'ed' + i[2:] in curves, f'found {i} but not {"ed" + i[2:]}'
+            else:
+                if i.startswith('nistp'):
+                    i = 'NIST P-' + i[5:]
+                do_test('ECDSA', 'ECDH', i, i, counter)
 
     def test_002_list_keys(self):
         self.genkey()
