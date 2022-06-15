@@ -116,6 +116,25 @@ def extract_args(untrusted_line: bytes, sep: bytes = b' '):
         return untrusted_line.split(sep, 1)
     return untrusted_line, None
 
+# none of our uses allow 0, so do not allow it
+_int_re = re.compile(rb'\A[1-9][0-9]*\Z')
+
+def sanitize_int(untrusted_arg: bytes, min_value: int, max_value: int) -> int:
+    """
+    Convert an untrusted decimal byte string to an integer.  Raises
+    :py:class:`Filtered` if the string is not the decimal representation
+    of an integer, or if the return value would be smaller than min_value or
+    larger than max_value.
+    """
+    length = len(untrusted_arg)
+    if not 1 <= length <= len(str(max_value)):
+        raise Filtered # bad length
+    if not _int_re.match(untrusted_arg):
+        raise Filtered
+    res = int(untrusted_arg)
+    if not min_value <= res <= max_value:
+        raise Filtered
+    return res
 
 class GpgServer:
     """
@@ -460,13 +479,8 @@ class GpgServer:
         # upper keygrip limit is arbitary
         if untrusted_args.startswith(b'--list'):
             if b'=' in untrusted_args:
-                try:
-                    limit = int(untrusted_args[len(b'--list='):])
-                except ValueError as e:
-                    raise Filtered from e
                 # 1000 is the default value used by gpg2
-                if limit < 0 or limit > 1000:
-                    raise Filtered
+                limit = sanitize_int(untrusted_args[len(b'--list='):], 1, 1000)
                 args = b'--list=%d' % limit
             else:
                 if untrusted_args != b'--list':
@@ -637,10 +651,12 @@ class GpgServer:
 
     async def command_SETHASH(self, untrusted_args: Optional[bytes]):
         untrusted_alg, untrusted_hash = untrusted_args.split(b' ', 1)
+        # OpenPGP uses 1-byte algorithm numbers, so the highest algorithm
+        # number possible is 255.
+        alg = sanitize_int(untrusted_alg, 2, 255)
         try:
-            alg = int(untrusted_alg)
             alg_param = self.hash_algos[alg]
-        except (KeyError, ValueError) as e:
+        except KeyError as e:
             raise Filtered from e
 
         if not untrusted_hash:
@@ -880,10 +896,8 @@ class GpgServer:
             return ([], untrusted_arg[1:].lstrip(b' '))
 
         if untrusted_arg[0] in range(0x30, 0x40):
-            length_s, _, rest = untrusted_arg.partition(b':')
-            length = int(length_s, 10)
-            if len(rest) < length:
-                raise ValueError("Invalid length")
+            length_s, rest = untrusted_arg.split(b':', 1)
+            length = sanitize_int(length_s, 1, len(rest))
             value = rest[0:length]
             rest = rest[length:]
         elif untrusted_arg[0] == ord('('):
