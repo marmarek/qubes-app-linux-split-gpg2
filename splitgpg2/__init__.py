@@ -145,7 +145,7 @@ def sanitize_int(untrusted_arg: bytes, min_value: int, max_value: int) -> int:
         raise Filtered # bad length
     if not _int_re.match(untrusted_arg):
         raise Filtered
-    res = int(untrusted_arg)
+    res = int(untrusted_arg, 10)
     if not min_value <= res <= max_value:
         raise Filtered
     return res
