@@ -59,7 +59,9 @@ class TC_Server(TestCase):
         # key generation tests - allow non-interactive operation
         if self.id().rsplit('.', 1)[-1] in ('test_001_genkey',
                                             'test_003_gen_and_list',
-                                            'test_009_genkey_with_pinentry'):
+                                            'test_009_genkey_with_pinentry',
+                                            'test_011_genkey_passphrase_empty',
+                                            'test_012_genkey_passphrase_non_empty'):
             gpg_server.allow_keygen = True
         self.request_timer_mock = mock.patch.object(
             gpg_server, 'request_timer').start()
@@ -452,3 +454,42 @@ Name-Email: {}
             self.fail(
                 'gpg2-agent did not refused to generate a key: {}{}'.format(
                 stdout.decode(), stderr.decode()))
+
+    def test_011_genkey_passphrase_empty(self):
+        p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
+            'gpg', '--batch', '--passphrase', '', '--quick-generate-key',
+            '--default-new-key-alg=ed25519/cert,sign', '--',
+            self.key_uid,
+            env=self.test_environ,
+            stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+            stdin=subprocess.DEVNULL))
+        stdout, stderr = self.loop.run_until_complete(p.communicate())
+        if p.returncode:
+            self.fail('Key generation failed')
+        # "export" public key to server keyring
+        shutil.copy(self.gpg_dir.name + '/pubring.kbx',
+                    self.gpg_dir.name + '/server/pubring.kbx')
+        shutil.copy(self.gpg_dir.name + '/trustdb.gpg',
+                    self.gpg_dir.name + '/server/trustdb.gpg')
+        # verify the key is there bypassing splitgpg2, test one thing at a time
+        p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
+            'gpg', '--with-colons', '-K', self.key_uid,
+            stderr=subprocess.PIPE, stdout=subprocess.PIPE))
+        stdout, stderr = self.loop.run_until_complete(p.communicate())
+        if p.returncode:
+            self.fail('generated key not found: {}{}'.format(
+                stdout.decode(), stderr.decode()))
+        self.assertIn(b'sec:u:', stdout)
+        self.assertIn(self.key_uid.encode(), stdout)
+
+    def test_012_genkey_passphrase_non_empty(self):
+        p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
+            'gpg', '--batch', '--passphrase', 'weak', '--quick-generate-key',
+            '--default-new-key-alg=ed25519/cert,sign', '--',
+            self.key_uid,
+            env=self.test_environ,
+            stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+            stdin=subprocess.DEVNULL))
+        stdout, stderr = self.loop.run_until_complete(p.communicate())
+        if not p.returncode:
+            self.fail('Key generation did not fail')

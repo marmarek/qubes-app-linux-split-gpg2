@@ -515,13 +515,18 @@ class GpgServer:
             raise Filtered
         args = []
         if untrusted_args is not None:
-            cache_nonce_seen = False
+            cache_nonce_seen = no_protection = False
             for untrusted_arg in untrusted_args.split(b' '):
-                if untrusted_arg == b'--no-protection':
-                    # allow --no-protection
+                if untrusted_arg in (b'--no-protection', b'--inq-passwd'):
+                    # allow --no-protection and --inq-passwd
+                    # non-empty passphrase responses will be rejected later
                     if cache_nonce_seen:
                         # option must come before cache_nonce
                         raise Filtered
+                    if no_protection:
+                        # option must only be used once
+                        raise Filtered
+                    no_protection = True
                     args.append(untrusted_arg)
                 elif untrusted_arg.startswith(b'--timestamp='):
                     # Allow --timestamp=, but set creation time to now, no
@@ -729,6 +734,7 @@ class GpgServer:
             inquires = {
                 b'KEYPARAM': self.inquire_KEYPARAM,
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
+                b'NEWPASSWD': self.inquire_NEWPASSWD,
             }
             return inquires
         if command == b'PKDECRYPT':
@@ -798,6 +804,16 @@ class GpgServer:
 
     # region INQUIRE commands sent from gpg-agent
     #
+
+    async def inquire_NEWPASSWD(self, untrusted_args):
+        if untrusted_args is not None:
+            raise Filtered('unexpected arguments to NEWPASSWD inquire')
+        # This really ought to be forbidden, but it is used by the simplest
+        # of creating a key with no passphrase.  Therefore, allow it, but
+        # do not allow responding with a non-empty passphrase.
+        await self.send_inquire(b'NEWPASSWD', {
+            b'END': self.inquire_command_END,
+        })
 
     async def inquire_KEYPARAM(self, untrusted_args):
         if untrusted_args is not None:
