@@ -898,16 +898,14 @@ class GpgServer:
         if untrusted_arg[0] in range(0x30, 0x40):
             length_s, rest = untrusted_arg.split(b':', 1)
             length = sanitize_int(length_s, 1, len(rest))
-            value = rest[0:length]
-            rest = rest[length:]
+            value, rest = rest[0:length], rest[length:]
         elif untrusted_arg[0] == ord('('):
             value, rest = cls._parse_sexpr(untrusted_arg[1:], nesting + 1)
         else:
             match = re.match(rb'\A([0-9a-zA-Z-_]+) ?(.*)\Z', untrusted_arg)
             if match is None:
                 raise ValueError("Invalid literal")
-            value = match.group(1)
-            rest = match.group(2)
+            value, rest = match.group(1), match.group(2)
 
         rest_parsed, new_rest = cls._parse_sexpr(rest, nesting)
         return ([value] + rest_parsed, new_rest)
