@@ -604,7 +604,7 @@ class GpgServer:
             return bytes([int(char[1:2], 16)])
 
 
-        return re.sub(rb'\\(\\|n|r|f|v|b|0|x[0-9-af]{2})', map_back, escaped)
+        return re.sub(rb'\\(\\|n|r|f|v|b|0|x[0-9a-f]{2})', map_back, escaped)
 
     @staticmethod
     def percent_plus_escape(to_escape):
