@@ -242,8 +242,8 @@ Expire-Date: 0
 
     def test_003_gen_and_list(self):
         """Test automatic export after keygen"""
-        keygen_params = """Key-Type: RSA
-        Key-Length: 2048
+        keygen_params = """Key-Type: EdDSA
+        Key-Curve: ed25519
         Name-Real: Joe Tester
         Name-Email: {}
         %no-protection
@@ -434,8 +434,8 @@ Expire-Date: 0
         self.assertIn(self.key_uid.encode(), stdout)
 
     def test_010_genkey_deny(self):
-        keygen_params = """Key-Type: RSA
-Key-Length: 2048
+        keygen_params = """Key-Type: EDDSA
+Key-Curve: ed25519
 Name-Real: Joe Tester
 Name-Email: {}
 %no-protection
