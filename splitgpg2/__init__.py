@@ -809,8 +809,10 @@ class GpgServer:
         if untrusted_args is not None:
             raise Filtered('unexpected arguments to NEWPASSWD inquire')
         # This really ought to be forbidden, but it is used by the simplest
-        # of creating a key with no passphrase.  Therefore, allow it, but
-        # do not allow responding with a non-empty passphrase.
+        # method of creating a key with no passphrase.  Therefore, allow it,
+        # but require the client to immediately send END.  This corresponds
+        # to an empty passphrase, which is equivalent to no passphrase being
+        # set on the key.
         await self.send_inquire(b'NEWPASSWD', {
             b'END': self.inquire_command_END,
         })
