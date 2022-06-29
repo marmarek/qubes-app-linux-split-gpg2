@@ -33,13 +33,14 @@ Just run `dpkg-buildpackage -us -uc` at the top level.
 
 Install the deb or the rpm on your TemplateVM(s).
 
-Create/Edit `/etc/qubes-rpc/policy/qubes.Gpg2` in dom0, it should contain something like:
-
-```
-gpg-client-vm gpg-server-vm allow
-```
 
 ## Configuration
+
+Create/Edit `/etc/qubes/policy.d/30-user-gpg2.policy` in dom0, and add a line like this:
+
+```
+qubes.Gpg2 + gpg-client-vm @default allow target=gpg-server-vm
+```
 
 Import/Generate your secret keys in the server domain.
 For example:
@@ -51,10 +52,6 @@ or
 ```
 gpg-server-vm$ gpg --gen-key
 ```
-
-Now configure which domain the client VM should use as server. Either:
- - Set the target for `@default` in qubes.Gpg2. or
- - Write `SPLIT_GPG2_SERVER_DOMAIN=<gpg-server>` into `~/.config/.split-gpg2-rc`.
 
 In dom0 enable the `split-gpg2-client` service in the client domain, for example via the command-line:
 ```shell

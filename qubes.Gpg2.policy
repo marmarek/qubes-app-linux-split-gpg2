@@ -1,6 +1,8 @@
-# Add a line like
+# Policy for qubes.Gpg2 service.
 #
-#gpg-client-vm gpg-server-vm allow
+# Add line like this:
+#
+# qubes.Gpg2 + gpg-client-vm @default allow target=gpg-server-vm
 #
 # to allow the VM named 'gpg-client-vm' use (but not export) the private keys
 # in 'gpg-server-vm'.

@@ -24,7 +24,7 @@ This package contains the Qubes RPC policy for split-gpg2.
 %build
 
 %install
-install -D -m0644 qubes.Gpg2.policy $RPM_BUILD_ROOT/etc/qubes-rpc/policy/qubes.Gpg2
+install -D -m0644 qubes.Gpg2.policy $RPM_BUILD_ROOT/etc/qubes/policy.d/30-user-gpg2.policy
 make install-python-dom0 DESTDIR="$RPM_BUILD_ROOT" PYTHON=%{__python3}
 
 %post
@@ -32,7 +32,7 @@ make install-python-dom0 DESTDIR="$RPM_BUILD_ROOT" PYTHON=%{__python3}
 %preun
 
 %files
-%config(noreplace) %attr(0664,root,qubes) /etc/qubes-rpc/policy/qubes.Gpg2
+%config(noreplace) %attr(0664,root,qubes) /etc/qubes/policy.d/30-user-gpg2.policy
 %{python3_sitelib}/splitgpg2tests
 %{python3_sitelib}/splitgpg2tests-*.egg-info
 
