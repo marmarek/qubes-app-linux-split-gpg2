@@ -199,7 +199,6 @@ class GpgServer:
         self.agent_socket_path = None
         self.agent_reader = None
         self.agent_writer = None
-        self.untrusted_input_buffer = bytearray()
 
         self.update_keygrip_map()
         self.seen_data = False
