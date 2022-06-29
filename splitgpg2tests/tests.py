@@ -63,15 +63,13 @@ Expire-Date: 0
         if 'whonix' in self.template:
             self.backend.run("date -s +10min", user="root", wait=True)
 
-        p = self.backend.run('mkdir .config; cat > .config/split-gpg2-rc', passio_popen=True)
+        p = self.backend.run('mkdir .config; cat > .config/qubes-split-gpg2.conf', passio_popen=True)
         p.communicate(
-                b'export SPLIT_GPG2_PKSIGN_AUTOACCEPT_TIME=600\n'
-                b'export SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME=600\n'
+                b'[DEFAULT]\n'
+                b'autoaccept = yes\n'
                 )
 
         self.frontend.features['service.split-gpg2-client'] = True
-
-        self.fake_confirmation()
 
         self.frontend.start()
 
@@ -102,16 +100,6 @@ Expire-Date: 0
             fpr.replace(b'fpr:::::::::', b'') + b'6:\n')
         self.assertEquals(p.returncode, 0,
             '{} failed: {}{}'.format(cmd, stdout.decode(), stderr.decode()))
-
-    def fake_confirmation(self, generate=False):
-        # fake confirmation
-        base_path = '/run/user/1000/gnupg/S.gpg-agent.extra_split-gpg2-timestamp'
-        if generate:
-            base_path = '/run/user/1000/gnupg/S.gpg-agent_split-gpg2-timestamp'
-        self.backend.run(
-            'touch {}_PKSIGN_{}'.format(base_path, self.frontend.name), wait=True)
-        self.backend.run(
-            'touch {}_PKDECRYPT_{}'.format(base_path, self.frontend.name), wait=True)
 
 
 class TC_00_Direct(SplitGPGBase):
@@ -222,9 +210,8 @@ class TC_00_Direct(SplitGPGBase):
         self.assertIn('\ngpg: Good signature from', verification_result.decode())
 
     def test_050_generate(self):
-        p = self.backend.run('cat >> .config/split-gpg2-rc', passio_popen=True)
-        p.communicate(b'export SPLIT_GPG2_ALLOW_KEYGEN=yes\n')
-        self.fake_confirmation(True)
+        p = self.backend.run('cat >> .config/qubes-split-gpg2.conf', passio_popen=True)
+        p.communicate(b'allow_keygen = yes\n')
 
         # see comment in setUp()
         if 'whonix' in self.template:
@@ -340,10 +327,6 @@ class TC_10_Thunderbird(SplitGPGBase):
             self.skipTest(
                 'dogtail installation failed: {}{}'.format(stdout, stderr))
 
-        # fake confirmation again, in case dogtail installation took more
-        # time (on slow network)
-        self.fake_confirmation()
-
         # if self.frontend.run(
         #         'python -c \'import dogtail,sys;'
         #         'sys.exit(dogtail.__version__ < "0.9.0")\'', wait=True) \
@@ -388,9 +371,6 @@ class TC_10_Thunderbird(SplitGPGBase):
         (stdout, _) = p.communicate()
         assert p.returncode == 0, 'Thunderbird setup failed: {}'.format(
             stdout.decode('ascii', 'ignore'))
-
-        # fake confirmation again, to give more time for the actual test
-        self.fake_confirmation()
 
     def tearDown(self):
         self.smtp_server.terminate()

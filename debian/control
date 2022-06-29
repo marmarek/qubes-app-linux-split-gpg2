@@ -10,6 +10,7 @@ Build-Depends:
  dh-python,
 # for tests
  gnupg (>= 2.1.0~beta),
+ python3-xdg,
  socat,
 
 Package: split-gpg2
@@ -25,6 +26,7 @@ Depends:
  gnupg (>= 2.1.0~beta),
  zenity,
  libnotify-bin,
+ python3-xdg,
  ${misc:Depends},
  ${python3:Depends},
 Description: Python package splitgpg2

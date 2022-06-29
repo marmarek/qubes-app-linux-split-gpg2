@@ -1,0 +1,57 @@
+[DEFAULT]
+# 'autoaccept' option - for how long automatically accept requests from the
+# same client qube; accepted values:
+#  - no - do not automatically accept, prompt each time
+#  - yes - always automatically accept, never prompt
+#  - seconds - number of seconds for how long automatically accept further requests
+#  of the same type
+#
+# default:
+# autoaccept = no
+
+# 'pksign_autoaccept' option - same as 'autoaccept' but only for signing requests
+# 'pkdecrypt_autoaccept' option - same as 'autoaccept' but only for decrypt requests
+# Note that signing and decrypt requests may be indistinguishable for some key types.
+
+# 'verbose_notification' option - show extra notifications
+# accepted values: yes, no
+#
+# default:
+# verbose_notification = no
+
+# 'allow-keygen' option - allow generating new keys
+# accepted values: yes, no
+#
+# default:
+# allow_keygen = no
+
+# 'gnupghome' option - set alternative GnuPG home directory; empty value means
+# GnuPG's default. This option takes precedence over 'isolated_gnupghome_dirs'.
+# accepted values: full path to the GuPG homedir;
+#
+# default:
+# gnupghome =
+
+# 'isolated_gnupghome_dirs' option - use separate GnuPG home directory for each
+# client (calling qube). The value points at a directory where each client will
+# get its own subdirectory. For example when this option is set to
+# '/home/user/gpg-home', then qube 'personal' will use
+# /home/user/gpg-home/personal as GnuPG home.
+#
+# default:
+# isolated_gnupghome_dirs =
+
+# 'debug_log' option - enable debug logging and set the debug log path
+# This is for debugging purpose only EVERYTHING WILL BE LOGGED including
+# potentially confidential data/keys/etc.
+#
+# default:
+# debug_log =
+
+
+# Each config option can be also set for specific client qube only, by putting
+# it in a "client:<name>" section. For example, to automatically accept all
+# requests from a qube named "trusted", add section like this:
+#
+# [client:trusted]
+# autoaccept = yes

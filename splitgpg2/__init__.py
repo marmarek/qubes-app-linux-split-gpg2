@@ -25,6 +25,7 @@
 # pylint: disable=too-many-lines
 
 import asyncio
+import configparser
 import enum
 
 import logging
@@ -38,6 +39,7 @@ import subprocess
 import sys
 import time
 from typing import Optional, Dict, Callable, Awaitable, Tuple, Pattern, List
+import xdg.BaseDirectory
 
 # from assuan.h
 ASSUAN_LINELENGTH = 1002
@@ -173,7 +175,8 @@ class GpgServer:
     cache_nonce_regex: re.Pattern = re.compile(rb'\A[0-9A-F]{24}\Z')
 
     def __init__(self, reader: asyncio.StreamReader,
-                 writer: asyncio.StreamWriter, client_domain: str):
+                 writer: asyncio.StreamWriter, client_domain: str,
+                 debug_log: str = None):
 
         # configuration options:
         self.verbose_notifications = False
@@ -183,6 +186,7 @@ class GpgServer:
         #: signal those Futures when connection is terminated
         self.notify_on_disconnect = set()
         self.log_io_enable = False
+        self.gnupghome = None
 
         self.client_reader = reader
         self.client_writer = writer
@@ -200,12 +204,60 @@ class GpgServer:
         self.update_keygrip_map()
         self.seen_data = False
 
-        debug_log = os.environ.get('SPLIT_GPG2_DEBUG_LOG', None)
         if debug_log:
             handler = logging.FileHandler(debug_log)
             self.log.addHandler(handler)
             self.log.setLevel(logging.DEBUG)
             self.log_io_enable = True
+
+    def _parse_timer_val(self, value, option_name):
+        if value == 'no':
+            return None
+        if value == 'yes':
+            return -1
+        try:
+            int_value = int(value)
+            if int_value <= 0:
+                raise ValueError(value)
+        except ValueError as e:
+            self.log.error(
+                "Invalid value '%s' for '%s' config option",
+                str(e), option_name
+            )
+            raise
+        return int_value
+
+    def _parse_bool_val(self, value, option_name):
+        if value == 'no':
+            return False
+        if value == 'yes':
+            return True
+        self.log.error(
+            "Invalid value '%s' for '%s' config option",
+            value, option_name
+        )
+        raise ValueError(value)
+
+    def load_config(self, config):
+        default_autoaccept = config.get('autoaccept', 'no')
+        for timer_name in TIMER_NAMES:
+            timer_value = config.get(timer_name + '_autoaccept',
+                default_autoaccept)
+            self.timer_delay[timer_name] = self._parse_timer_val(
+                timer_value, 'autoaccept')
+
+        self.verbose_notifications = self._parse_bool_val(
+            config.get('verbose_notifications', 'no'), 'verbose_notifications')
+
+        self.allow_keygen = self._parse_bool_val(
+            config.get('allow_keygen', 'no'), 'allow_keygen')
+
+        if 'isolated_gnupghome_dirs' in config:
+            self.gnupghome = os.path.join(
+                config['isolated_gnupghome_dirs'],
+                self.client_domain)
+
+        self.gnupghome = config.get('gnupghome', self.gnupghome)
 
     async def run(self):
         await self.connect_agent()
@@ -230,13 +282,20 @@ class GpgServer:
             chr(c) if c in allowed else '.'
             for c in untrusted_msg.strip()))
 
+    def homedir_opts(self):
+        if self.gnupghome:
+            return ('--homedir', self.gnupghome)
+        return ()
+
     async def connect_agent(self):
         try:
-            subprocess.check_call(['gpgconf', '--launch', 'gpg-agent'])
+            subprocess.check_call(
+                ['gpgconf', *self.homedir_opts(), '--launch', 'gpg-agent'])
         except subprocess.CalledProcessError as e:
             raise StartFailed from e
 
-        dirs = subprocess.check_output(['gpgconf', '--list-dirs'])
+        dirs = subprocess.check_output(
+            ['gpgconf', *self.homedir_opts(), '--list-dirs'])
         if self.allow_keygen:
             socket_field = b'agent-socket:'
         else:
@@ -623,7 +682,9 @@ class GpgServer:
         return b''.join(esc(c) for c in to_escape)
 
     def update_keygrip_map(self):
-        out = subprocess.check_output(['gpg', '--list-secret-keys', '--with-colons'])
+        out = subprocess.check_output([
+            'gpg', *self.homedir_opts(), '--list-secret-keys', '--with-colons'
+        ])
         keys = []
         key = None
         subkey = None
@@ -1092,10 +1153,10 @@ class GpgServer:
     # endregion
 
 
-TIMER_NAMES = {
-    'SPLIT_GPG2_PKSIGN_AUTOACCEPT_TIME': 'PKSIGN',
-    'SPLIT_GPG2_PKDECRYPT_AUTOACCEPT_TIME': 'PKDECRYPT',
-}
+TIMER_NAMES = (
+    'PKSIGN',
+    'PKDECRYPT',
+)
 
 def open_stdinout_connection(*, loop=None):
     if loop is None:
@@ -1114,31 +1175,34 @@ def open_stdinout_connection(*, loop=None):
 
     return reader, writer
 
+
+def load_config_files(client_domain):
+    config_dirs = ['/etc', xdg.BaseDirectory.xdg_config_home]
+
+    config = configparser.ConfigParser()
+    config.read([os.path.join(d, 'qubes-split-gpg2.conf') for d in config_dirs])
+    # 'DEFAULTS' section is special, values there serve as defaults
+    # for other sections
+    section = 'client:' + client_domain
+    if config.has_section(section):
+        return config[section]
+    return config['DEFAULT']
+
+
 def main():
     client_domain = os.environ['QREXEC_REMOTE_DOMAIN']
+    config = load_config_files(client_domain)
+
     loop = asyncio.get_event_loop()
     reader, writer = open_stdinout_connection()
-    server = GpgServer(reader, writer, client_domain)
+    server = GpgServer(reader, writer, client_domain,
+        debug_log=config.get('debug_log'))
 
-    for timer_var, timer_name in TIMER_NAMES.items():
-        if timer_var in os.environ:
-            value = os.environ[timer_var]
-            server.timer_delay[timer_name] = int(value) \
-                if re.match(r'\A(0|[1-9][0-9]*)\Z', value) \
-                else None
-
-    for name in ['VERBOSE_NOTIFICATIONS', 'ALLOW_KEYGEN']:
-        name = 'SPLIT_GPG2_' + name
-        value = os.environ.get(name, None)
-        if value not in [None, 'yes', 'no']:
-            raise ValueError('bad value for %s: '
-                             'must be "yes" or "no", not %r' % (name, value))
-
-    if os.environ.get('SPLIT_GPG2_VERBOSE_NOTIFICATIONS', None) == 'yes':
-        server.verbose_notifications = True
-
-    if os.environ.get('SPLIT_GPG2_ALLOW_KEYGEN', None) == 'yes':
-        server.allow_keygen = True
+    try:
+        server.load_config(config)
+    except ValueError:
+        print("Error in a config file, aborting", file=sys.stderr)
+        sys.exit(2)
 
     connection_terminated = loop.create_future()
     server.notify_on_disconnect.add(connection_terminated)

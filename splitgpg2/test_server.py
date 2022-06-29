@@ -17,6 +17,8 @@
 # with this program; if not, see <http://www.gnu.org/licenses/>.
 
 import asyncio
+import configparser
+import functools
 import os
 import shutil
 import subprocess
@@ -493,3 +495,151 @@ Name-Email: {}
         stdout, stderr = self.loop.run_until_complete(p.communicate())
         if not p.returncode:
             self.fail('Key generation did not fail')
+
+
+class TC_Config(TestCase):
+    key_uid = 'user@localhost'
+
+    def setup_server(self, config, reader, writer):
+        gpg_server = GpgServer(reader, writer, 'testvm')
+        gpg_server.load_config(config['client:testvm'])
+        self.request_timer_mock = mock.patch.object(
+            gpg_server, 'request_timer').start()
+        self.notify_mock = mock.patch.object(
+            gpg_server, 'notify').start()
+        gpg_server.log_io_enable = True
+        asyncio.ensure_future(gpg_server.run())
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        # tests assume certain responses - force specific locale
+        os.environ['LC_ALL'] = 'C'
+        self.loop = asyncio.get_event_loop()
+        self.gpg_dir = tempfile.TemporaryDirectory()
+        # use separate GNUPGHOME for client and server, to force different
+        # sockets
+        self.test_environ = os.environ.copy()
+        self.test_environ['GNUPGHOME'] = self.gpg_dir.name
+        gpgconf_output = subprocess.check_output(
+            ['gpgconf', '--list-dirs'],
+            env=self.test_environ).decode()
+        self.socket_path = [l.split(':', 1)[1]
+                            for l in gpgconf_output.splitlines()
+                            if l.startswith('agent-socket:')][0]
+        self.server_gpghome = self.gpg_dir.name + '/server'
+        os.mkdir(self.server_gpghome, mode=0o700)
+
+
+    def tearDown(self) -> None:
+        try:
+            self.server.close()
+            self.loop.run_until_complete(self.server.wait_closed())
+        except AttributeError:
+            pass
+        self.gpg_dir.cleanup()
+        mock.patch.stopall()
+        super().tearDown()
+
+    def genkey(self):
+        p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
+            'gpg', '--homedir', self.server_gpghome,
+            '--batch', '--passphrase', '', '--quick-gen-key',
+            self.key_uid,
+            stderr=subprocess.PIPE, stdout=subprocess.PIPE))
+        stdout, stderr = self.loop.run_until_complete(p.communicate())
+        if p.returncode:
+            self.skipTest('failed to generate key: {}{}'.format(
+                stdout.decode(), stderr.decode()))
+        # "export" public key to client keyring
+        shutil.copy(self.gpg_dir.name + '/server/pubring.kbx',
+                    self.gpg_dir.name + '/pubring.kbx')
+        shutil.copy(self.gpg_dir.name + '/server/trustdb.gpg',
+                    self.gpg_dir.name + '/trustdb.gpg')
+
+    def test_000_basic(self):
+        reader = mock.Mock()
+        writer = mock.Mock()
+        config = configparser.ConfigParser()
+        # configparser allows indented options
+        config.read_string(
+            f"""
+            [DEFAULT]
+            gnupghome = {self.server_gpghome}
+            [client:testvm]
+            autoaccept = yes
+            pksign_autoaccept = 300
+            verbose_notifications = yes
+            allow_keygen = yes
+            """)
+        gpg_server = GpgServer(reader, writer, 'testvm')
+        gpg_server.load_config(config['client:testvm'])
+        self.assertTrue(gpg_server.allow_keygen)
+        self.assertTrue(gpg_server.verbose_notifications)
+        self.assertEqual(gpg_server.gnupghome, self.server_gpghome)
+        self.assertEqual(gpg_server.timer_delay['PKSIGN'], 300)
+        self.assertEqual(gpg_server.timer_delay['PKDECRYPT'], -1)
+
+    def test_001_per_client_gpghome(self):
+        reader = mock.Mock()
+        writer = mock.Mock()
+        config = configparser.ConfigParser()
+        # configparser allows indented options
+        config.read_string(
+            f"""
+            [DEFAULT]
+            isolated_gnupghome_dirs = {self.gpg_dir.name}
+            """)
+        gpg_server = GpgServer(reader, writer, 'server')
+        gpg_server.load_config(config['DEFAULT'])
+        self.assertEqual(gpg_server.gnupghome, self.server_gpghome)
+
+    def test_002_invalid(self):
+        reader = mock.Mock()
+        writer = mock.Mock()
+        gpg_server = GpgServer(reader, writer, 'server')
+        with self.assertRaises(ValueError):
+            config = configparser.ConfigParser()
+            config.read_string("""[DEFAULT]
+            autoaccept = False
+            """)
+            gpg_server.load_config(config['DEFAULT'])
+        with self.assertRaises(ValueError):
+            config = configparser.ConfigParser()
+            config.read_string("""[DEFAULT]
+            pkdecrypt_autoaccept = -1
+            """)
+            gpg_server.load_config(config['DEFAULT'])
+        with self.assertRaises(ValueError):
+            config = configparser.ConfigParser()
+            config.read_string("""[DEFAULT]
+            allow_keygen = 7
+            """)
+            gpg_server.load_config(config['DEFAULT'])
+
+    def test_010_gpghome(self):
+        self.genkey()
+
+        config = configparser.ConfigParser()
+        # configparser allows indented options
+        config.read_string(
+            f"""
+            [DEFAULT]
+            gnupghome = {self.server_gpghome}
+            [client:testvm]
+            """)
+        self.server = self.loop.run_until_complete(
+            asyncio.start_unix_server(
+                functools.partial(self.setup_server, config),
+                self.socket_path))
+
+        p = self.loop.run_until_complete(asyncio.create_subprocess_exec(
+            'gpg', '--with-colons', '-K', self.key_uid,
+            env=self.test_environ,
+            stderr=subprocess.PIPE, stdout=subprocess.PIPE))
+        stdout, stderr = self.loop.run_until_complete(p.communicate())
+        if p.returncode:
+            self.fail('generated key not found: {}{}'.format(
+                stdout.decode(), stderr.decode()))
+        self.assertIn(b'sec:u:', stdout)
+        self.assertIn(self.key_uid.encode(), stdout)

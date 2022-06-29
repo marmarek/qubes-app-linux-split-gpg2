@@ -31,6 +31,6 @@ install-other:
 	install -m 755 qubes.Gpg2.service $(DESTDIR)/etc/qubes-rpc/qubes.Gpg2
 	install -m 644 split-gpg2-client.service $(DESTDIR)/usr/lib/systemd/user/
 	install -m 644 split-gpg2-client.preset $(DESTDIR)/usr/lib/systemd/user-preset/70-split-gpg2-client.preset
-	install -m 644 split-gpg2-rc.example $(DESTDIR)/usr/share/doc/split-gpg2/examples/
+	install -m 644 qubes-split-gpg2.conf.example $(DESTDIR)/usr/share/doc/split-gpg2/examples/
 	install -m 644 README.md $(DESTDIR)/usr/share/doc/split-gpg2/
 	install -m 644 tests/* $(DESTDIR)/usr/share/split-gpg2-tests/
