@@ -366,6 +366,9 @@ class GpgServer:
         delay = self.timer_delay[name]
         timestamp_path = self.timestamp_path(name)
         if delay is not None:
+            if delay < 0:
+                self.notify('command {} automatically allowed'.format(name))
+                return
             try:
                 mtime = timestamp_path.stat().st_mtime
                 if mtime + delay > now:
