@@ -617,6 +617,22 @@ class TC_Config(TestCase):
             """)
             gpg_server.load_config(config['DEFAULT'])
 
+    def test_003_option_typo(self):
+        reader = mock.Mock()
+        writer = mock.Mock()
+        gpg_server = GpgServer(reader, writer, 'server')
+        gpg_server.log = mock.Mock()
+        config = configparser.ConfigParser()
+        config.read_string("""[DEFAULT]
+        autoaccept = no
+        no_such_option = 1
+        """)
+        gpg_server.load_config(config['DEFAULT'])
+        # warns about unsupported option only
+        self.assertEquals(gpg_server.log.mock_calls, [
+            mock.call.warning('Unsupported config option: %s', 'no_such_option')
+        ])
+
     def test_010_gpghome(self):
         self.genkey()
 

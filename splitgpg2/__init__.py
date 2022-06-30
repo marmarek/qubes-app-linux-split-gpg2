@@ -258,6 +258,23 @@ class GpgServer:
 
         self.gnupghome = config.get('gnupghome', self.gnupghome)
 
+        # warn about unknown options, to easier spot typos, but don't refuse to
+        # start, to allow extensibility
+        supported_options = (
+            'autoaccept',
+            'pksign_autoaccept',
+            'pkdecrypt_autoaccept',
+            'verbose_notifications',
+            'allow_keygen',
+            'gnupghome',
+            'isolated_gnupghome_dirs',
+            # handled in main()
+            'debug_log',
+        )
+        for option in config:
+            if option not in supported_options:
+                self.log.warning('Unsupported config option: %s', option)
+
     async def run(self):
         await self.connect_agent()
         try:
