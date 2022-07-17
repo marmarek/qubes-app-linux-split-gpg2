@@ -1193,7 +1193,7 @@ def open_stdinout_connection(*, loop=None):
 
 
 def load_config_files(client_domain):
-    config_dirs = ['/etc', xdg.BaseDirectory.xdg_config_home]
+    config_dirs = ['/etc', xdg.BaseDirectory.xdg_config_home + '/qubes-split-gpg2']
 
     config = configparser.ConfigParser()
     config.read([os.path.join(d, 'qubes-split-gpg2.conf') for d in config_dirs])
