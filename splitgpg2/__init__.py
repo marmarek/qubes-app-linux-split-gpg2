@@ -183,6 +183,8 @@ class GpgServer:
     commands: Dict[bytes, Callable[[bytes], Awaitable]]
     client_domain: str
     seen_data: bool
+    config_loaded: bool
+    keygrip_map: Dict[bytes, BaseKeyInfo]
 
     cache_nonce_regex: re.Pattern = re.compile(rb'\A[0-9A-F]{24}\Z')
 
@@ -198,7 +200,7 @@ class GpgServer:
         #: signal those Futures when connection is terminated
         self.notify_on_disconnect = set()
         self.log_io_enable = False
-        self.gnupghome = None
+        self.gnupghome = xdg.BaseDirectory.xdg_config_home + '/qubes-split-gpg2/gnupg'
 
         self.client_reader = reader
         self.client_writer = writer
@@ -206,14 +208,15 @@ class GpgServer:
         self.commands = self.default_commands()
         self.options = self.default_options()
         self.hash_algos = self.default_hash_algos()
+        self.keygrip_map = {}
 
         self.log = logging.getLogger('splitgpg2.Server')
         self.agent_socket_path = None
         self.agent_reader: Optional[asyncio.StreamReader] = None
         self.agent_writer: Optional[asyncio.StreamWriter] = None
 
-        self.update_keygrip_map()
         self.seen_data = False
+        self.config_loaded = False
 
         if debug_log:
             handler = logging.FileHandler(debug_log)
@@ -250,6 +253,7 @@ class GpgServer:
         raise ValueError(value)
 
     def load_config(self, config):
+        self.config_loaded = True
         default_autoaccept = config.get('autoaccept', 'no')
         for timer_name in TIMER_NAMES:
             timer_value = config.get(timer_name + '_autoaccept',
@@ -316,6 +320,7 @@ class GpgServer:
         return ()
 
     async def connect_agent(self):
+        assert self.config_loaded, 'Config not loaded?'
         try:
             subprocess.check_call(
                 ['gpgconf', *self.homedir_opts(), '--launch', 'gpg-agent'])
@@ -323,7 +328,7 @@ class GpgServer:
             raise StartFailed from e
 
         dirs = subprocess.check_output(
-            ['gpgconf', *self.homedir_opts(), '--list-dirs'])
+            ['gpgconf', *self.homedir_opts(), '--list-dirs', '-o/dev/stdout'])
         if self.allow_keygen:
             socket_field = b'agent-socket:'
         else:
