@@ -101,19 +101,31 @@ class HashAlgo:
         self.name = name
         self.len = length
 
-class KeyInfo:
-    def __init__(self):
+class BaseKeyInfo(object):
+    fingerprint: Optional[bytes]
+    keygrip: Optional[bytes]
+    capabilities: bytes
+    __slots__ = ('fingerprint', 'keygrip', 'capabilities')
+    def __init__(self, capabilities: bytes) -> None:
         self.fingerprint = None
         self.keygrip = None
+        self.capabilities = capabilities
+
+class SubKeyInfo(BaseKeyInfo):
+    key: 'KeyInfo'
+    __slots__ = ('key',)
+    def __init__(self, capabilities: bytes, key: 'KeyInfo'):
+        super().__init__(capabilities)
+        self.key = key
+
+class KeyInfo(BaseKeyInfo):
+    subkeys: List[SubKeyInfo]
+    first_uid: Optional[bytes]
+    __slots__ = ('subkeys', 'first_uid')
+    def __init__(self, capabilities: bytes):
+        super().__init__(capabilities)
         self.first_uid = None
         self.subkeys = []
-
-class SubKeyInfo:
-    def __init__(self):
-        self.fingerprint = None
-        self.keygrip = None
-        self.key = None
-
 
 @enum.unique
 class ServerState(enum.Enum):
@@ -642,7 +654,9 @@ class GpgServer:
             info = self.keygrip_map.get(keygrip)
 
         if info is None:
-            desc = b'Keygrip: %s' % keygrip
+            if not self.allow_keygen:
+                raise Filtered
+            desc = b'Keygrip: ' + keygrip
         else:
             if isinstance(info, SubKeyInfo):
                 key = info.key
@@ -697,27 +711,25 @@ class GpgServer:
             return b'%%%02x' % char
         return b''.join(esc(c) for c in to_escape)
 
-    def update_keygrip_map(self):
+    def update_keygrip_map(self) -> None:
         out = subprocess.check_output([
             'gpg', *self.homedir_opts(), '--list-secret-keys', '--with-colons'
         ])
-        keys = []
-        key = None
-        subkey = None
+        keys: List[BaseKeyInfo] = []
+        key: Optional[KeyInfo] = None
+        subkey: Optional[SubKeyInfo] = None
         for line in out.split(b"\n"):
             fields = line.split(b":")
             if fields[0] in [b"sec", b"ssb", b""]:
-                if subkey is not None:
-                    subkey.key = key
-                    key.subkeys.append(subkey)
-                    subkey = None
+                subkey = None
             if fields[0] in [b"sec", b""] and key is not None:
                 keys.append(key)
-
             if fields[0] == b"sec":
-                key = KeyInfo()
+                key = KeyInfo(fields[11])
             elif fields[0] == b"ssb":
-                subkey = SubKeyInfo()
+                assert key is not None, 'subkey before primary key?'
+                subkey = SubKeyInfo(fields[11], key)
+                key.subkeys.append(subkey)
             elif fields[0] == b"fpr":
                 if subkey is None:
                     key.fingerprint = fields[9]
@@ -728,14 +740,17 @@ class GpgServer:
                     key.keygrip = fields[9]
                 else:
                     subkey.keygrip = fields[9]
-            elif fields[0] == b"uid" and key.first_uid is None:
-                key.first_uid = self.estream_unescape(fields[9])
-
-        new_keygrip_map = {}
+            elif fields[0] == b"uid":
+                assert key is not None, 'uid before primary key?'
+                if key.first_uid is None:
+                    key.first_uid = self.estream_unescape(fields[9])
+        new_keygrip_map: Dict[bytes, BaseKeyInfo] = {}
         for key in keys:
-            new_keygrip_map[key.keygrip] = key
+            if key.keygrip is not None:
+                new_keygrip_map[key.keygrip] = key
             for subkey in key.subkeys:
-                new_keygrip_map[subkey.keygrip] = subkey
+                if subkey.keygrip is not None:
+                    new_keygrip_map[subkey.keygrip] = subkey
         self.keygrip_map = new_keygrip_map
 
     async def command_SETKEYDESC(self, untrusted_args: Optional[bytes]):
