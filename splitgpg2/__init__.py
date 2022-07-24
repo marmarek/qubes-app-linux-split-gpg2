@@ -18,11 +18,15 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-# Part of split-gpg2.
-#
-# This implements the server part. See README for details.
+"""
+Part of split-gpg2.
 
-# pylint: disable=too-many-lines
+This implements the server part. See README for details.
+"""
+
+# pylint: disable=too-many-lines,missing-function-docstring
+# pylint: disable=consider-using-f-string,too-many-branches
+# pylint: disable=fixme,too-few-public-methods,missing-class-docstring
 
 import asyncio
 import enum
@@ -38,19 +42,20 @@ import subprocess
 import sys
 import time
 from typing import Optional, Dict, Callable, Awaitable, Tuple, Pattern, List, \
-     Union, Any, TypeVar, Set, TYPE_CHECKING, Coroutine, Sequence, TypeAlias, \
-     cast
+     Union, Any, TypeVar, Set, TYPE_CHECKING, Coroutine, Sequence, cast
 
 if TYPE_CHECKING:
     from typing_extensions import Protocol
+    from typing import TypeAlias
+    SExpr: TypeAlias = Union[Sequence[Sequence[object]], bytes]
     class ArgCallback(Protocol):
-        def __call__(self, *, untrusted_args: bytes) -> Coroutine[Any, Any, bool]:
+        def __call__(self, *, untrusted_args: bytes) -> Coroutine[object, object, bool]:
             pass
     class NoneCallback(Protocol):
         async def __call__(self, *, untrusted_args: Optional[bytes]) -> None:
             pass
     class SExprValidator(Protocol):
-        def __call__(self, *, untrusted_sexp: SExpr) -> None:
+        def __call__(self, *, untrusted_sexp: 'SExpr') -> None:
             pass
 
 # pylint: disable=invalid-name
@@ -135,8 +140,6 @@ class SubKeyInfo:
         self.fingerprint = None
         self.keygrip = None
         self.key = None
-
-SExpr: TypeAlias = Union[Sequence[Sequence[object]], bytes]
 
 @enum.unique
 class ServerState(enum.Enum):
@@ -322,7 +325,7 @@ class GpgServer:
         except Filtered as e:
             self.log.exception(e)
             self.close_on_filtered_error(e)
-        except BaseException as e:  # pylint: disable=bare-except
+        except BaseException as e:  # pylint: disable=broad-except
             self.log.exception(e)
             self.close('error')
 
@@ -337,7 +340,7 @@ class GpgServer:
             return await inquire_command(untrusted_args=untrusted_args or b'')
         except Filtered as e:
             self.close_on_filtered_error(e)
-        except BaseException as e:  # pylint: disable=bare-except
+        except BaseException as e:  # pylint: disable=broad-except
             self.log.exception(e)
             self.close('error')
         return False
@@ -849,21 +852,14 @@ class GpgServer:
         if untrusted_res == b'INQUIRE':
             if not untrusted_args:
                 raise Filtered
-            await self.handle_agent_inquire(
-                    expected_inquires=expected_inquires,
-                    untrusted_args=untrusted_args)
+            untrusted_inq, untrusted_inq_args = extract_args(untrusted_args)
+            try:
+                inquire = expected_inquires[untrusted_inq]
+            except KeyError as e:
+                raise Filtered from e
+            await inquire(untrusted_args=untrusted_inq_args or b'')
             return True
         raise ProtocolError('unexpected gpg-agent response')
-
-    async def handle_agent_inquire(self,
-            expected_inquires: Dict[bytes, 'ArgCallback'], *,
-            untrusted_args: bytes) -> None:
-        untrusted_inq, untrusted_inq_args = extract_args(untrusted_args)
-        try:
-            inquire = expected_inquires[untrusted_inq]
-        except KeyError as e:
-            raise Filtered from e
-        await inquire(untrusted_args=untrusted_inq_args or b'')
 
     # region INQUIRE commands sent from gpg-agent
     #
@@ -924,7 +920,7 @@ class GpgServer:
     # each function returns whether further responses are expected
 
     @classmethod
-    def check_letter_sexp(cls, start_string: bytes, untrusted_sexp: SExpr) -> Sequence[object]:
+    def check_letter_sexp(cls, start_string: bytes, untrusted_sexp: 'SExpr') -> Sequence[object]:
         """
         Check that ``untrusted_sexp`` is a list of length 2 that starts with
         ``start_string``.  Returns the second element.
@@ -937,7 +933,7 @@ class GpgServer:
         return untrusted_last
 
     @classmethod
-    def check_letter_list(cls, start_string: bytes, untrusted_sexp: SExpr) -> list:
+    def check_letter_list(cls, start_string: bytes, untrusted_sexp: 'SExpr') -> list:
         """
         Check that ``untrusted_sexp`` is a list of length 2 that starts with
         ``start_string`` and has a second element of type :py:class:`listj`.
@@ -949,7 +945,7 @@ class GpgServer:
         return untrusted_last
 
     @classmethod
-    def check_letter_bytes(cls, start_string: bytes, untrusted_sexp: SExpr) -> bytes:
+    def check_letter_bytes(cls, start_string: bytes, untrusted_sexp: 'SExpr') -> bytes:
         """
         Check that ``untrusted_sexp`` is a list of length 2 that starts with
         ``start_string`` and has a second element of type :py:class:`bytes`.
@@ -960,9 +956,10 @@ class GpgServer:
             raise ValueError('Invalid type of sexp tail')
         return untrusted_last
 
-    def inquire_command_D_CIPHERTEXT(self, *, untrusted_args: bytes) -> Coroutine[Any, Any, bool]:
+    def inquire_command_D_CIPHERTEXT(self, *, untrusted_args: bytes) -> \
+            Coroutine[object, object, bool]:
         def check_mpi_list(names: Union[Tuple[bytes, bytes], Tuple[bytes]], *,
-                           untrusted_sexp: List[SExpr]) -> None:
+                           untrusted_sexp: List['SExpr']) -> None:
             """
             Check that the elements in ``untrusted_sexp`` are length-2
             lists.  The first element in each list is expected to be
@@ -975,7 +972,7 @@ class GpgServer:
             for (name, untrusted_value) in zip(names, untrusted_sexp):
                 self.check_letter_bytes(name, untrusted_value)
 
-        def validate_ciphertext_sexp(*, untrusted_sexp: SExpr) -> None:
+        def validate_ciphertext_sexp(*, untrusted_sexp: 'SExpr') -> None:
             """
             Check that the ``untrusted_sexp`` is a valid offer of a ciphertext
             for decryption.
@@ -1023,7 +1020,7 @@ class GpgServer:
                 if untrusted_flag not in allowed_flags:
                     raise ValueError('Forbidden flag sent')
 
-        def validate_keygen_sexp(*, untrusted_sexp: SExpr) -> None:
+        def validate_keygen_sexp(*, untrusted_sexp: 'SExpr') -> None:
             """
             Check that the ``untrusted_sexp`` is a valid set of key generation
             parameters.
@@ -1100,7 +1097,7 @@ class GpgServer:
     # we send the reserialized form this should be safe.
 
     @classmethod
-    def parse_sexpr(cls, untrusted_arg: bytes) -> SExpr:
+    def parse_sexpr(cls, untrusted_arg: bytes) -> 'SExpr':
         # pylint: disable=unidiomatic-typecheck
         if type(untrusted_arg) is not bytes:
             raise TypeError("invalid type in parse_sexpr")
@@ -1118,7 +1115,7 @@ class GpgServer:
         return sexpr[0]
 
     @classmethod
-    def _parse_sexpr(cls, untrusted_arg: bytes, nesting: int) -> Tuple[List[SExpr], bytes]:
+    def _parse_sexpr(cls, untrusted_arg: bytes, nesting: int) -> Tuple[List['SExpr'], bytes]:
         if not untrusted_arg:
             if nesting > 0:
                 raise ValueError("missing closing parenthesis")
@@ -1136,7 +1133,7 @@ class GpgServer:
             return ([], untrusted_arg[1:].lstrip(b' '))
 
         rest: bytes
-        value: Union[List[SExpr], bytes]
+        value: Union[List['SExpr'], bytes]
         if untrusted_arg[0] in range(0x30, 0x40):
             length_s, rest = untrusted_arg.split(b':', 1)
             length = sanitize_int(length_s, 1, len(rest))
@@ -1153,7 +1150,7 @@ class GpgServer:
         return ([value] + rest_parsed, new_rest)
 
     @classmethod
-    def serialize_sexpr(cls, sexpr: SExpr) -> bytes:
+    def serialize_sexpr(cls, sexpr: 'SExpr') -> bytes:
         if not isinstance(sexpr, list):
             raise ValueError("serialize_sexpr expects a list")
 
