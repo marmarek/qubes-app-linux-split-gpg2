@@ -270,7 +270,7 @@ Expire-Date: 0
             stderr=subprocess.PIPE, stdout=subprocess.PIPE))
         stdout, stderr = self.loop.run_until_complete(p.communicate())
         if p.returncode:
-            self.fail('generated key not found: {}{}'.format(
+            self.fail('generated key not found ({}): {}{}'.format(
                 p.returncode, stdout.decode(), stderr.decode()))
         self.assertIn(b'sec:u:', stdout)
         self.assertIn(self.key_uid.encode(), stdout)
