@@ -31,3 +31,13 @@ checks:pylint:
   script:
     - pylint splitgpg2
 
+checks:mypy:
+  stage: checks
+  tags:
+    - docker
+  before_script:
+    - pip3 install --quiet -r ci/requirements.txt
+  script:
+    - PATH=$PATH:$HOME/.local/bin
+    - mypy splitgpg2
+
