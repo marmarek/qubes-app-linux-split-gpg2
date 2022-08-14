@@ -18,11 +18,15 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-# Part of split-gpg2.
-#
-# This implements the server part. See README for details.
+"""
+Part of split-gpg2.
 
-# pylint: disable=too-many-lines
+This implements the server part. See README for details.
+"""
+
+# pylint: disable=too-many-lines,missing-function-docstring
+# pylint: disable=consider-using-f-string,too-many-branches
+# pylint: disable=fixme,too-few-public-methods,missing-class-docstring
 
 import asyncio
 import configparser
@@ -38,8 +42,26 @@ import string
 import subprocess
 import sys
 import time
-from typing import Optional, Dict, Callable, Awaitable, Tuple, Pattern, List
-import xdg.BaseDirectory
+from typing import Optional, Dict, Callable, Awaitable, Tuple, Pattern, List, \
+     Union, Any, TypeVar, Set, TYPE_CHECKING, Coroutine, Sequence, cast
+import xdg.BaseDirectory  # type: ignore
+
+if TYPE_CHECKING:
+    from typing_extensions import Protocol
+    from typing import TypeAlias
+    SExpr: TypeAlias = Union[Sequence[Sequence[object]], bytes]
+    class ArgCallback(Protocol):
+        def __call__(self, *, untrusted_args: bytes) -> Coroutine[object, object, bool]:
+            pass
+    class NoneCallback(Protocol):
+        async def __call__(self, *, untrusted_args: Optional[bytes]) -> None:
+            pass
+    class SExprValidator(Protocol):
+        def __call__(self, *, untrusted_sexp: 'SExpr') -> None:
+            pass
+
+# pylint: disable=invalid-name
+T = TypeVar('T', List['SExpr'], bytes)
 
 # from assuan.h
 ASSUAN_LINELENGTH = 1002
@@ -102,18 +124,24 @@ class HashAlgo:
         self.len = length
 
 class KeyInfo:
-    def __init__(self):
+    subkeys: List['SubKeyInfo']
+    fingerprint: Optional[bytes]
+    keygrip: Optional[bytes]
+    first_uid: Optional[bytes]
+    def __init__(self) -> None:
         self.fingerprint = None
         self.keygrip = None
         self.first_uid = None
         self.subkeys = []
 
 class SubKeyInfo:
-    def __init__(self):
+    fingerprint: Optional[bytes]
+    keygrip: Optional[bytes]
+    key: Optional[KeyInfo]
+    def __init__(self) -> None:
         self.fingerprint = None
         self.keygrip = None
         self.key = None
-
 
 @enum.unique
 class ServerState(enum.Enum):
@@ -123,13 +151,14 @@ class ServerState(enum.Enum):
     agent_response = 3  # waiting for agent response
 
 
-def extract_args(untrusted_line: bytes, sep: bytes = b' '):
+def extract_args(untrusted_line: bytes, sep: bytes = b' ') -> Tuple[bytes, Optional[bytes]]:
     """Split a line into a command and arguments (if any).
 
     Returns: tuple(untrusted_cmd, untrusted_args)
     """
     if sep in untrusted_line:
-        return untrusted_line.split(sep, 1)
+        untrusted_cmd, untrusted_args = untrusted_line.split(sep, 1)
+        return untrusted_cmd, untrusted_args
     return untrusted_line, None
 
 # none of our uses allow 0, so do not allow it
@@ -164,15 +193,21 @@ class GpgServer:
     """
     # pylint: disable=too-many-instance-attributes,too-many-public-methods
     # type hints, enable when python >= 3.6 will be everywhere...
-    inquire_commands: Dict[bytes, Callable[[bytes], Awaitable]]
+    inquire_commands: Dict[bytes, Callable[[bytes], Awaitable[bool]]]
     timer_delay: Dict[str, Optional[int]]
     hash_algos: Dict[int, HashAlgo]
-    options: Dict[bytes, Tuple[OptionHandlingType, bytes]]
-    commands: Dict[bytes, Callable[[bytes], Awaitable]]
+    options: Dict[bytes, Tuple[OptionHandlingType, Optional[bytes]]]
+    commands: Dict[bytes, 'NoneCallback']
     client_domain: str
     seen_data: bool
+    keygrip_map: Dict[bytes, Union[KeyInfo, SubKeyInfo]]
+    notify_on_disconnect: Set[Awaitable[object]]
+    gnupghome: Optional[str]
+    agent_socket_path: Optional[str]
+    agent_reader: Optional[asyncio.StreamReader]
+    agent_writer: Optional[asyncio.StreamWriter]
 
-    cache_nonce_regex: re.Pattern = re.compile(rb'\A[0-9A-F]{24}\Z')
+    cache_nonce_regex: re.Pattern[bytes] = re.compile(rb'\A[0-9A-F]{24}\Z')
 
     def __init__(self, reader: asyncio.StreamReader,
                  writer: asyncio.StreamWriter, client_domain: str,
@@ -209,7 +244,7 @@ class GpgServer:
             self.log.setLevel(logging.DEBUG)
             self.log_io_enable = True
 
-    def _parse_timer_val(self, value, option_name):
+    def _parse_timer_val(self, value, option_name) -> Optional[int]:
         if value == 'no':
             return None
         if value == 'yes':
@@ -226,7 +261,7 @@ class GpgServer:
             raise
         return int_value
 
-    def _parse_bool_val(self, value, option_name):
+    def _parse_bool_val(self, value, option_name) -> bool:
         if value == 'no':
             return False
         if value == 'yes':
@@ -237,7 +272,7 @@ class GpgServer:
         )
         raise ValueError(value)
 
-    def load_config(self, config):
+    def load_config(self, config) -> None:
         default_autoaccept = config.get('autoaccept', 'no')
         for timer_name in TIMER_NAMES:
             timer_value = config.get(timer_name + '_autoaccept',
@@ -275,16 +310,17 @@ class GpgServer:
             if option not in supported_options:
                 self.log.warning('Unsupported config option: %s', option)
 
-    async def run(self):
+    async def run(self) -> None:
         await self.connect_agent()
         try:
             while not self.client_reader.at_eof():
                 await self.handle_command()
         finally:
             # close connection to the real gpg agent too
-            self.agent_writer.close()
+            if self.agent_writer is not None:
+                self.agent_writer.close()
 
-    def log_io(self, prefix, untrusted_msg):
+    def log_io(self, prefix: str, untrusted_msg: bytes) -> None:
         if not self.log_io_enable:
             return
         allowed = string.printable.\
@@ -293,17 +329,17 @@ class GpgServer:
             replace('\r', '').\
             replace('\f', '').\
             replace('\v', '')
-        allowed = allowed.encode('ascii')
+        allowed_bytes = allowed.encode('ascii')
         self.log.warning('%s: %s', prefix, ''.join(
-            chr(c) if c in allowed else '.'
+            chr(c) if c in allowed_bytes else '.'
             for c in untrusted_msg.strip()))
 
-    def homedir_opts(self):
+    def homedir_opts(self) -> List[str]:
         if self.gnupghome:
-            return ('--homedir', self.gnupghome)
-        return ()
+            return ['--homedir', self.gnupghome]
+        return []
 
-    async def connect_agent(self):
+    async def connect_agent(self) -> None:
         try:
             subprocess.check_call(
                 ['gpgconf', *self.homedir_opts(), '--launch', 'gpg-agent'])
@@ -330,14 +366,16 @@ class GpgServer:
         # wait for agent hello
         await self.handle_agent_response()
 
-    def close(self, reason, log_level=logging.ERROR):
+    def close(self, reason: str, log_level: int = logging.ERROR) -> None:
         self.log.log(log_level, '%s; Closing!', reason)
         # pylint: disable=protected-access
-        self.client_reader._transport.close()
+        cast(Any, self.client_reader)._transport.close()
         self.client_writer.close()
-        self.agent_writer.close()
+        if self.agent_writer is not None:
+            self.agent_writer.close()
 
-    def close_on_filtered_error(self, e):
+    def close_on_filtered_error(self, e: Filtered) -> None:
+        self.log.exception(e)
         self.notify('command filtered out')
         self.client_write('ERR {} {}\n'.format(e.code, e.gpg_message).encode())
         # Break handling since we aren't sure that clients handle the error
@@ -346,7 +384,7 @@ class GpgServer:
         # was successful while is was indeed filtered out.
         self.close('command filtered out')
 
-    async def handle_command(self):
+    async def handle_command(self) -> None:
         try:
             untrusted_line = await self.read_one_line_from_client()
             if not untrusted_line:
@@ -362,11 +400,11 @@ class GpgServer:
         except Filtered as e:
             self.log.exception(e)
             self.close_on_filtered_error(e)
-        except:  # pylint: disable=bare-except
-            self.log.exception('Error processing command')
+        except BaseException as e:  # pylint: disable=broad-except
+            self.log.exception(e)
             self.close('error')
 
-    async def handle_inquire(self, inquire_commands):
+    async def handle_inquire(self, inquire_commands: Dict[bytes, 'ArgCallback']) -> bool:
         untrusted_line = await self.read_one_line_from_client()
         try:
             untrusted_cmd, untrusted_args = extract_args(untrusted_line)
@@ -374,14 +412,15 @@ class GpgServer:
                 inquire_command = inquire_commands[untrusted_cmd]
             except KeyError as e:
                 raise Filtered from e
-            return await inquire_command(untrusted_args=untrusted_args)
+            return await inquire_command(untrusted_args=untrusted_args or b'')
         except Filtered as e:
             self.close_on_filtered_error(e)
-        except:  # pylint: disable=bare-except
-            self.log.exception('Error processing inquire')
+        except BaseException as e:  # pylint: disable=broad-except
+            self.log.exception(e)
             self.close('error')
+        return False
 
-    def default_commands(self):
+    def default_commands(self) -> Dict[bytes, 'NoneCallback']:
         return {
             b'RESET': self.command_RESET,
             b'OPTION': self.command_OPTION,
@@ -401,7 +440,7 @@ class GpgServer:
         }
 
     @staticmethod
-    def default_options():
+    def default_options() -> Dict[bytes, Tuple[OptionHandlingType, Optional[bytes]]]:
         return {
             b'ttyname': (OptionHandlingType.fake, b'OK'),
             b'ttytype': (OptionHandlingType.fake, b'OK'),
@@ -414,14 +453,14 @@ class GpgServer:
         }
 
     @staticmethod
-    def default_timer_delay():
+    def default_timer_delay() -> Dict[str, Optional[int]]:
         return {
             'PKSIGN': None,     # always query for signing
             'PKDECRYPT': 300    # 5 min
         }
 
     @staticmethod
-    def default_hash_algos():
+    def default_hash_algos() -> Dict[int, HashAlgo]:
         return {
             2: HashAlgo('sha1', 40),
             3: HashAlgo('rmd160', 40),
@@ -432,11 +471,11 @@ class GpgServer:
         }
 
     @staticmethod
-    def notify(msg):
+    def notify(msg: str) -> None:
         # TODO: call into dbus directly
         subprocess.call(['notify-send', 'split-gpg2: {}'.format(msg)])
 
-    def request_timer(self, name):
+    def request_timer(self, name: str) -> None:
         now = time.time()
         delay = self.timer_delay[name]
         timestamp_path = self.timestamp_path(name)
@@ -464,15 +503,15 @@ class GpgServer:
         self.notify('command {} allowed'.format(name))
         timestamp_path.touch()
 
-    def timestamp_path(self, name) -> pathlib.Path:
+    def timestamp_path(self, name: str) -> pathlib.Path:
         return pathlib.Path('{}_split-gpg2-timestamp_{}_{}'.format(
             self.agent_socket_path, name, self.client_domain))
 
-    def client_write(self, data):
+    def client_write(self, data: bytes) -> None:
         self.log_io('C <<<', data)
         self.client_writer.write(data)
 
-    async def read_one_line_from_client(self):
+    async def read_one_line_from_client(self) -> bytes:
         untrusted_line = await self.client_reader.readline()
         untrusted_line = untrusted_line.rstrip(b'\n')
         # pylint: disable=arguments-differ
@@ -481,17 +520,21 @@ class GpgServer:
         self.log_io('C >>>', untrusted_line)
         return untrusted_line
 
-    async def send_inquire(self, inquire, inquire_commands):
+    async def send_inquire(self, inquire: bytes,
+            inquire_commands: Dict[bytes, 'ArgCallback']) -> None:
         self.client_write(b'INQUIRE ' + inquire + b'\n')
         self.seen_data = False
         while await self.handle_inquire(inquire_commands):
             pass
 
-    def fake_respond(self, response):
+    def fake_respond(self, response: bytes) -> None:
         self.client_write(response + b'\n')
 
     @staticmethod
-    def verify_keygrip_arguments(min_count, max_count, untrusted_args):
+    def verify_keygrip_arguments(min_count: int, max_count: int,
+            untrusted_args: Optional[bytes]) -> bytes:
+        if untrusted_args is None:
+            raise Filtered
         args_regex = re.compile(rb'\A[0-9A-F]{40}( [0-9A-F]{40}){%d,%d}\Z' %
                                 (min_count-1, max_count-1))
 
@@ -518,12 +561,12 @@ class GpgServer:
             replace(' ', '+').\
             encode('ascii')
 
-    async def command_RESET(self, untrusted_args: Optional[bytes]):
+    async def command_RESET(self, untrusted_args: Optional[bytes]) -> None:
         if untrusted_args is not None:
             raise Filtered
         await self.send_agent_command(b'RESET', None)
 
-    async def command_OPTION(self, untrusted_args: Optional[bytes]):
+    async def command_OPTION(self, untrusted_args: Optional[bytes]) -> None:
         if not untrusted_args:
             raise Filtered
 
@@ -556,6 +599,7 @@ class GpgServer:
                 option_arg = name
 
         elif action == OptionHandlingType.fake:
+            assert opts is not None, 'Fake response cannot be None'
             self.fake_respond(opts)
             return
 
@@ -564,12 +608,14 @@ class GpgServer:
 
         await self.send_agent_command(b'OPTION', option_arg)
 
-    async def command_AGENT_ID(self, untrusted_args: Optional[bytes]):
+    async def command_AGENT_ID(self, untrusted_args: Optional[bytes]) -> None:
         # pylint: disable=unused-argument
         self.fake_respond(
             b'ERR %d unknown IPC command' % GPGErrorCode.UnknownIPCCommand)
 
-    async def command_HAVEKEY(self, untrusted_args: Optional[bytes]):
+    async def command_HAVEKEY(self, untrusted_args: Optional[bytes]) -> None:
+        if untrusted_args is None:
+            raise Filtered
         # upper keygrip limit is arbitary
         if untrusted_args.startswith(b'--list'):
             if b'=' in untrusted_args:
@@ -584,11 +630,11 @@ class GpgServer:
             args = self.verify_keygrip_arguments(1, 200, untrusted_args)
         await self.send_agent_command(b'HAVEKEY', args)
 
-    async def command_KEYINFO(self, untrusted_args: Optional[bytes]):
+    async def command_KEYINFO(self, untrusted_args: Optional[bytes]) -> None:
         args = self.verify_keygrip_arguments(1, 1, untrusted_args)
         await self.send_agent_command(b'KEYINFO', args)
 
-    async def command_GENKEY(self, untrusted_args: Optional[bytes]):
+    async def command_GENKEY(self, untrusted_args: Optional[bytes]) -> None:
         if not self.allow_keygen:
             raise Filtered
         args = []
@@ -622,20 +668,19 @@ class GpgServer:
                 else:
                     raise Filtered
 
-        args = b' '.join(args)
-        await self.send_agent_command(b'GENKEY', args)
+        await self.send_agent_command(b'GENKEY', b' '.join(args))
 
-    async def command_SIGKEY(self, untrusted_args: Optional[bytes]):
+    async def command_SIGKEY(self, untrusted_args: Optional[bytes]) -> None:
         args = self.verify_keygrip_arguments(1, 1, untrusted_args)
         await self.send_agent_command(b'SIGKEY', args)
         await self.setkeydesc(args)
 
-    async def command_SETKEY(self, untrusted_args: Optional[bytes]):
+    async def command_SETKEY(self, untrusted_args: Optional[bytes]) -> None:
         args = self.verify_keygrip_arguments(1, 1, untrusted_args)
         await self.send_agent_command(b'SETKEY', args)
         await self.setkeydesc(args)
 
-    async def setkeydesc(self, keygrip):
+    async def setkeydesc(self, keygrip: bytes) -> None:
         info = self.keygrip_map.get(keygrip)
         if info is None:
             self.update_keygrip_map()
@@ -650,14 +695,16 @@ class GpgServer:
             else:
                 key = info
                 subkey_desc = b''
+            assert key is not None, 'no key?'
 
-            desc = b'UID: %s\nFingerprint: %s%s' % (
-                    key.first_uid.split(b'\n')[0],
+            desc = b'%s\nFingerprint: %s%s' % (
+                    (b'UID: ' + key.first_uid.split(b'\n')[0]) if key.first_uid is not None else '',
                     key.fingerprint,
                     subkey_desc)
 
         self.agent_write(b'SETKEYDESC %s\n' % self.percent_plus_escape(desc))
 
+        assert self.agent_reader is not None
         untrusted_line = await self.agent_reader.readline()
         untrusted_line = untrusted_line.rstrip(b'\n')
         self.log_io('A >>>', untrusted_line)
@@ -665,7 +712,7 @@ class GpgServer:
             raise ProtocolError('SETKEYDESC failed')
 
     @staticmethod
-    def estream_unescape(escaped):
+    def estream_unescape(escaped: bytes) -> bytes:
         """Undo es_write_sanitized()"""
 
         char_map = { b'\\': b'\\',
@@ -675,7 +722,7 @@ class GpgServer:
                      b'v': b'\v',
                      b'b': b'\b',
                      b'0': b'\0'}
-        def map_back(match):
+        def map_back(match: re.Match[bytes]) -> bytes:
             char = match.group(1)
             if char in char_map:
                 return char_map[char]
@@ -685,11 +732,11 @@ class GpgServer:
         return re.sub(rb'\\(\\|n|r|f|v|b|0|x[0-9a-f]{2})', map_back, escaped)
 
     @staticmethod
-    def percent_plus_escape(to_escape):
+    def percent_plus_escape(to_escape: bytes) -> bytes:
         unescaped_ascii = [
             c for c in range(0x20, 0x7e)
             if c not in list(b'+"% ')]
-        def esc(char):
+        def esc(char: int) -> bytes:
             if char in unescaped_ascii:
                 return bytes([char])
             if char == ord(' '):
@@ -697,17 +744,18 @@ class GpgServer:
             return b'%%%02x' % char
         return b''.join(esc(c) for c in to_escape)
 
-    def update_keygrip_map(self):
+    def update_keygrip_map(self) -> None:
         out = subprocess.check_output([
             'gpg', *self.homedir_opts(), '--list-secret-keys', '--with-colons'
         ])
-        keys = []
-        key = None
-        subkey = None
+        keys: List[KeyInfo] = []
+        key: Optional[KeyInfo] = None
+        subkey: Optional[SubKeyInfo] = None
         for line in out.split(b"\n"):
             fields = line.split(b":")
             if fields[0] in [b"sec", b"ssb", b""]:
                 if subkey is not None:
+                    assert key is not None, 'bad output from GnuPG'
                     subkey.key = key
                     key.subkeys.append(subkey)
                     subkey = None
@@ -719,39 +767,50 @@ class GpgServer:
             elif fields[0] == b"ssb":
                 subkey = SubKeyInfo()
             elif fields[0] == b"fpr":
+                assert key is not None, 'bad output from GnuPG'
                 if subkey is None:
                     key.fingerprint = fields[9]
                 else:
                     subkey.fingerprint = fields[9]
             elif fields[0] == b"grp":
+                assert key is not None, 'bad output from GnuPG'
                 if subkey is None:
                     key.keygrip = fields[9]
                 else:
                     subkey.keygrip = fields[9]
-            elif fields[0] == b"uid" and key.first_uid is None:
-                key.first_uid = self.estream_unescape(fields[9])
+            elif fields[0] == b"uid":
+                assert key is not None, 'bad output from GnuPG'
+                if key.first_uid is None:
+                    key.first_uid = self.estream_unescape(fields[9])
 
-        new_keygrip_map = {}
+        new_keygrip_map: Dict[bytes, Union[KeyInfo, SubKeyInfo]] = {}
         for key in keys:
+            assert key.keygrip is not None, 'no keygrip'
             new_keygrip_map[key.keygrip] = key
             for subkey in key.subkeys:
+                assert subkey.keygrip is not None, 'no subkey keygrip'
                 new_keygrip_map[subkey.keygrip] = subkey
         self.keygrip_map = new_keygrip_map
 
-    async def command_SETKEYDESC(self, untrusted_args: Optional[bytes]):
+    async def command_SETKEYDESC(self, untrusted_args: Optional[bytes]) -> None:
         # Fake a positive respose. We always send a SETKEYDESC after
         # SETKEY/SIGKEY.
         # pylint: disable=unused-argument
         self.fake_respond(b'OK')
 
-    async def command_PKDECRYPT(self, untrusted_args: Optional[bytes]):
+    async def command_PKDECRYPT(self, untrusted_args: Optional[bytes]) -> None:
         if untrusted_args is not None:
             raise Filtered
         self.request_timer('PKDECRYPT')
         await self.send_agent_command(b'PKDECRYPT', None)
 
-    async def command_SETHASH(self, untrusted_args: Optional[bytes]):
-        untrusted_alg, untrusted_hash = untrusted_args.split(b' ', 1)
+    async def command_SETHASH(self, untrusted_args: Optional[bytes]) -> None:
+        if untrusted_args is None:
+            raise Filtered
+        try:
+            untrusted_alg, untrusted_hash = untrusted_args.split(b' ', 1)
+        except ValueError as e:
+            raise Filtered from e
         # OpenPGP uses 1-byte algorithm numbers, so the highest algorithm
         # number possible is 255.
         alg = sanitize_int(untrusted_alg, 2, 255)
@@ -771,7 +830,7 @@ class GpgServer:
         await self.send_agent_command(
             b'SETHASH', b'%d %s' % (alg, hash_value))
 
-    async def command_PKSIGN(self, untrusted_args: Optional[bytes]):
+    async def command_PKSIGN(self, untrusted_args: Optional[bytes]) -> None:
         if untrusted_args is not None:
             if not untrusted_args.startswith(b'-- '):
                 raise Filtered
@@ -786,20 +845,20 @@ class GpgServer:
 
         await self.send_agent_command(b'PKSIGN', args)
 
-    async def command_GETINFO(self, untrusted_args: Optional[bytes]):
+    async def command_GETINFO(self, untrusted_args: Optional[bytes]) -> None:
         if not untrusted_args in [b'version', b'restricted']:
             raise Filtered
         args = untrusted_args
 
         await self.send_agent_command(b'GETINFO', args)
 
-    async def command_BYE(self, untrusted_args: Optional[bytes]):
+    async def command_BYE(self, untrusted_args: Optional[bytes]) -> None:
         if untrusted_args is not None:
             raise Filtered
         await self.send_agent_command(b'BYE', None)
         self.close("Client closed connection", logging.INFO)
 
-    async def command_SCD(self, untrusted_args: Optional[bytes]):
+    async def command_SCD(self, untrusted_args: Optional[bytes]) -> None:
         # We don't support smartcard daemon commands, but fake enough that the
         # search for a default key doesn't fail.
 
@@ -809,9 +868,9 @@ class GpgServer:
         self.fake_respond(
             b'ERR %d No SmartCard daemon' % GPGErrorCode.NoSCDaemon)
 
-    def get_inquires_for_command(self, command: bytes) -> Dict[bytes, Callable]:
+    def get_inquires_for_command(self, command: bytes) -> Dict[bytes, 'ArgCallback']:
         if command == b'GENKEY':
-            inquires = {
+            inquires: Dict[bytes, ArgCallback] = {
                 b'KEYPARAM': self.inquire_KEYPARAM,
                 b'PINENTRY_LAUNCHED': self.inquire_PINENTRY_LAUNCHED,
                 b'NEWPASSWD': self.inquire_NEWPASSWD,
@@ -828,7 +887,7 @@ class GpgServer:
             }
         return {}
 
-    async def send_agent_command(self, command: bytes, args: Optional[bytes]):
+    async def send_agent_command(self, command: bytes, args: Optional[bytes]) -> None:
         """ Sends command to local gpg agent and handle the response """
         expected_inquires = self.get_inquires_for_command(command)
         if args:
@@ -842,15 +901,20 @@ class GpgServer:
             if not more_expected:
                 break
 
-    def agent_write(self, data):
+    def agent_write(self, data: bytes) -> None:
+        writer = self.agent_writer
+        assert writer is not None, 'agent_write called with no agent writer?'
         self.log_io('A <<<', data)
-        self.agent_writer.write(data)
+        writer.write(data)
 
-    async def handle_agent_response(self, expected_inquires=None):
+    async def handle_agent_response(self,
+            expected_inquires: Optional[Dict[bytes, 'ArgCallback']] = None) \
+                    -> bool:
         """ Receive and handle one agent response. Return whether there are
         more expected """
-        if expected_inquires is None:
-            expected_inquires = {}
+        expected_inquires = (expected_inquires if expected_inquires is not None
+                             else {})
+        assert self.agent_reader is not None
         # We generally consider the agent as trusted. But since the client can
         # determine part of the response we handle this here as untrusted.
         untrusted_line = await self.agent_reader.readline()
@@ -868,25 +932,20 @@ class GpgServer:
         if untrusted_res == b'INQUIRE':
             if not untrusted_args:
                 raise Filtered
-            await self.handle_agent_inquire(
-                    expected_inquires=expected_inquires,
-                    untrusted_args=untrusted_args)
+            untrusted_inq, untrusted_inq_args = extract_args(untrusted_args)
+            try:
+                inquire = expected_inquires[untrusted_inq]
+            except KeyError as e:
+                raise Filtered from e
+            await inquire(untrusted_args=untrusted_inq_args or b'')
             return True
         raise ProtocolError('unexpected gpg-agent response')
-
-    async def handle_agent_inquire(self, expected_inquires, *, untrusted_args):
-        untrusted_inq, untrusted_inq_args = extract_args(untrusted_args)
-        try:
-            inquire = expected_inquires[untrusted_inq]
-        except KeyError as e:
-            raise Filtered from e
-        await inquire(untrusted_args=untrusted_inq_args)
 
     # region INQUIRE commands sent from gpg-agent
     #
 
-    async def inquire_NEWPASSWD(self, untrusted_args):
-        if untrusted_args is not None:
+    async def inquire_NEWPASSWD(self, *, untrusted_args: bytes) -> bool:
+        if untrusted_args:
             raise Filtered('unexpected arguments to NEWPASSWD inquire')
         # This really ought to be forbidden, but it is used by the simplest
         # method of creating a key with no passphrase.  Therefore, allow it,
@@ -896,16 +955,18 @@ class GpgServer:
         await self.send_inquire(b'NEWPASSWD', {
             b'END': self.inquire_command_END,
         })
+        return False
 
-    async def inquire_KEYPARAM(self, untrusted_args):
-        if untrusted_args is not None:
+    async def inquire_KEYPARAM(self, *, untrusted_args: bytes) -> bool:
+        if untrusted_args:
             raise Filtered('unexpected arguments to KEYPARAM inquire')
         await self.send_inquire(b'KEYPARAM', {
             b'D': self.inquire_command_D_KEYGEN,
             b'END': self.inquire_command_END,
         })
+        return False
 
-    async def inquire_PINENTRY_LAUNCHED(self, untrusted_args):
+    async def inquire_PINENTRY_LAUNCHED(self, *, untrusted_args: bytes) -> bool:
         # This comes from the local agent and shouldn't be controlled by the
         # untrusted client. Additionally the only thing we do with it is to
         # send it back to the client.
@@ -914,8 +975,9 @@ class GpgServer:
         await self.send_inquire(b'PINENTRY_LAUNCHED ' + args, {
             b'END': self.inquire_command_END,
         })
+        return False
 
-    async def inquire_CIPHERTEXT(self, untrusted_args):
+    async def inquire_CIPHERTEXT(self, *, untrusted_args: bytes) -> bool:
         """
         Handle a CIPHERTEXT inquiry
 
@@ -925,12 +987,13 @@ class GpgServer:
         - (enc-val (rsa (a <A>))) for RSA
         - (enc-val (elg (a <A>) (b <b>))) for ElGamal
         """
-        if untrusted_args is not None:
+        if untrusted_args:
             raise Filtered('unexpected arguments to CIPHERTEXT inquire')
         await self.send_inquire(b'CIPHERTEXT', {
             b'D': self.inquire_command_D_CIPHERTEXT,
             b'END': self.inquire_command_END,
         })
+        return False
 
     # endregion
 
@@ -939,24 +1002,46 @@ class GpgServer:
     # each function returns whether further responses are expected
 
     @classmethod
-    def check_letter_sexp(cls, start_string: bytes, untrusted_sexp,
-                          expected_ty: type) -> None:
+    def check_letter_sexp(cls, start_string: bytes, untrusted_sexp: 'SExpr') -> Sequence[object]:
         """
         Check that ``untrusted_sexp`` is a list of length 2 that starts with
-        ``start_string`` and has a second element of type ``expected_ty``.
-        Returns the second element.
+        ``start_string``.  Returns the second element.
         """
         if not isinstance(untrusted_sexp, list) or len(untrusted_sexp) != 2:
             raise Filtered
         untrusted_first, untrusted_last = untrusted_sexp
         if untrusted_first != start_string:
             raise ValueError('Invalid head of sexp')
-        if not isinstance(untrusted_last, expected_ty):
+        return untrusted_last
+
+    @classmethod
+    def check_letter_list(cls, start_string: bytes, untrusted_sexp: 'SExpr') -> list:
+        """
+        Check that ``untrusted_sexp`` is a list of length 2 that starts with
+        ``start_string`` and has a second element of type :py:class:`listj`.
+        Returns the second element.
+        """
+        untrusted_last = cls.check_letter_sexp(start_string, untrusted_sexp)
+        if not isinstance(untrusted_last, list):
             raise ValueError('Invalid type of sexp tail')
         return untrusted_last
 
-    def inquire_command_D_CIPHERTEXT(self, *, untrusted_args: bytes):
-        def check_mpi_list(names: List[bytes], *, untrusted_sexp: List[object]):
+    @classmethod
+    def check_letter_bytes(cls, start_string: bytes, untrusted_sexp: 'SExpr') -> bytes:
+        """
+        Check that ``untrusted_sexp`` is a list of length 2 that starts with
+        ``start_string`` and has a second element of type :py:class:`bytes`.
+        Returns the second element.
+        """
+        untrusted_last = cls.check_letter_sexp(start_string, untrusted_sexp)
+        if not isinstance(untrusted_last, bytes):
+            raise ValueError('Invalid type of sexp tail')
+        return untrusted_last
+
+    def inquire_command_D_CIPHERTEXT(self, *, untrusted_args: bytes) -> \
+            Coroutine[object, object, bool]:
+        def check_mpi_list(names: Union[Tuple[bytes, bytes], Tuple[bytes]], *,
+                           untrusted_sexp: List['SExpr']) -> None:
             """
             Check that the elements in ``untrusted_sexp`` are length-2
             lists.  The first element in each list is expected to be
@@ -967,15 +1052,14 @@ class GpgServer:
             if len(names) != len(untrusted_sexp):
                 raise Filtered
             for (name, untrusted_value) in zip(names, untrusted_sexp):
-                self.check_letter_sexp(name, untrusted_value, bytes)
+                self.check_letter_bytes(name, untrusted_value)
 
-        def validate_ciphertext_sexp(*, untrusted_sexp):
+        def validate_ciphertext_sexp(*, untrusted_sexp: 'SExpr') -> None:
             """
             Check that the ``untrusted_sexp`` is a valid offer of a ciphertext
             for decryption.
             """
-            untrusted_sexp = self.check_letter_sexp(
-                    b'enc-val', untrusted_sexp, list)
+            untrusted_sexp = self.check_letter_list(b'enc-val', untrusted_sexp)
             if len(untrusted_sexp) < 2:
                 raise ValueError('No MPIs found')
             untrusted_alg = untrusted_sexp[0]
@@ -991,13 +1075,12 @@ class GpgServer:
         return self.inquire_command_D(validate_ciphertext_sexp,
                                       untrusted_args=untrusted_args)
 
-    def inquire_command_D_KEYGEN(self, *, untrusted_args: bytes):
-        def validate_bits_len(untrusted_sexp):
-            untrusted_bits = self.check_letter_sexp(
-                    b'nbits', untrusted_sexp, bytes)
+    def inquire_command_D_KEYGEN(self, *, untrusted_args: bytes) -> Coroutine[object, object, bool]:
+        def validate_bits_len(untrusted_sexp: Union[List[Sequence[object]], bytes]) -> None:
+            untrusted_bits = self.check_letter_bytes(b'nbits', untrusted_sexp)
             sanitize_int(untrusted_bits, 1024, 4096)
 
-        def check_curve_flags(untrusted_curve, untrusted_flags):
+        def check_curve_flags(untrusted_curve: bytes, untrusted_flags: List[object]) -> None:
             # Non-Edwards curves are easy; check those first
             if untrusted_curve in known_other_curves:
                 if untrusted_flags != [b'nocomp']:
@@ -1019,21 +1102,19 @@ class GpgServer:
                 if untrusted_flag not in allowed_flags:
                     raise ValueError('Forbidden flag sent')
 
-        def validate_keygen_sexp(*, untrusted_sexp):
+        def validate_keygen_sexp(*, untrusted_sexp: 'SExpr') -> None:
             """
             Check that the ``untrusted_sexp`` is a valid set of key generation
             parameters.
             """
-            untrusted_sexp = self.check_letter_sexp(
-                    b'genkey', untrusted_sexp, list)
+            untrusted_sexp = self.check_letter_list(b'genkey', untrusted_sexp)
             if len(untrusted_sexp) < 2:
                 raise ValueError('No key parameters')
             untrusted_alg = untrusted_sexp[0]
             if untrusted_alg == b'ecc':
                 if len(untrusted_sexp) != 3:
                     raise ValueError('invalid elliptic curve parameters')
-                untrusted_curve = self.check_letter_sexp(
-                        b'curve', untrusted_sexp[1], bytes)
+                untrusted_curve = self.check_letter_bytes(b'curve', untrusted_sexp[1])
                 untrusted_flags = untrusted_sexp[2]
                 if not isinstance(untrusted_flags, list):
                     raise ValueError('Flags must be a list')
@@ -1054,7 +1135,8 @@ class GpgServer:
         return self.inquire_command_D(validate_keygen_sexp,
                                       untrusted_args=untrusted_args)
 
-    async def inquire_command_D(self, validate_sexp, *, untrusted_args):
+    async def inquire_command_D(self, validate_sexp: 'SExprValidator', *,
+            untrusted_args: bytes) -> bool:
         # We parse and then reserialize the sexpr. Currently we assume that the
         # sexpr fits in one assuan line. This line length also implicitly
         # limits the sexpr sizes.
@@ -1074,7 +1156,7 @@ class GpgServer:
         return True
 
     @staticmethod
-    def unescape_D(untrusted_arg):
+    def unescape_D(untrusted_arg: bytes) -> bytes:
         return re.sub(
             rb'%[0-9A-F]{2}',
             lambda m: bytes([int(m.group(0)[1:], 16)]),
@@ -1082,7 +1164,7 @@ class GpgServer:
         )
 
     @staticmethod
-    def escape_D(data):
+    def escape_D(data: bytes) -> bytes:
         # Like gpg we only escape those chars that are really necessary. Since
         # the data normally contains binary data it's likely that gpg-agent's
         # parser works fine with strange chars, so it doesn't makes much sense
@@ -1097,7 +1179,7 @@ class GpgServer:
     # we send the reserialized form this should be safe.
 
     @classmethod
-    def parse_sexpr(cls, untrusted_arg: bytes):
+    def parse_sexpr(cls, untrusted_arg: bytes) -> 'SExpr':
         # pylint: disable=unidiomatic-typecheck
         if type(untrusted_arg) is not bytes:
             raise TypeError("invalid type in parse_sexpr")
@@ -1115,8 +1197,8 @@ class GpgServer:
         return sexpr[0]
 
     @classmethod
-    def _parse_sexpr(cls, untrusted_arg, nesting):
-        if len(untrusted_arg) == 0:
+    def _parse_sexpr(cls, untrusted_arg: bytes, nesting: int) -> Tuple[List['SExpr'], bytes]:
+        if not untrusted_arg:
             if nesting > 0:
                 raise ValueError("missing closing parenthesis")
             return ([], b'')
@@ -1132,6 +1214,8 @@ class GpgServer:
                 raise ValueError("sexpr has too big nesting depth")
             return ([], untrusted_arg[1:].lstrip(b' '))
 
+        rest: bytes
+        value: Union[List['SExpr'], bytes]
         if untrusted_arg[0] in range(0x30, 0x40):
             length_s, rest = untrusted_arg.split(b':', 1)
             length = sanitize_int(length_s, 1, len(rest))
@@ -1148,11 +1232,12 @@ class GpgServer:
         return ([value] + rest_parsed, new_rest)
 
     @classmethod
-    def serialize_sexpr(cls, sexpr):
+    def serialize_sexpr(cls, sexpr: 'SExpr') -> bytes:
         if not isinstance(sexpr, list):
             raise ValueError("serialize_sexpr expects a list")
 
-        def serialize_item(item):
+        # MyPy cannot handle recursive types, hence the use of Any here
+        def serialize_item(item: Union[List[Any], bytes]) -> bytes:
             if isinstance(item, list):
                 return b'(' + b''.join(serialize_item(j) for j in item) + b')'
             if isinstance(item, bytes):
@@ -1162,8 +1247,8 @@ class GpgServer:
 
         return b'(' + b''.join(serialize_item(i) for i in sexpr) + b')'
 
-    async def inquire_command_END(self, *, untrusted_args):
-        if untrusted_args is not None:
+    async def inquire_command_END(self, *, untrusted_args: bytes) -> bool:
+        if untrusted_args:
             raise Filtered('unexpected arguments to END')
         self.agent_write(b'END\n')
         return False
@@ -1176,7 +1261,9 @@ TIMER_NAMES = (
     'PKDECRYPT',
 )
 
-def open_stdinout_connection(*, loop=None):
+def open_stdinout_connection(*,
+    loop: Optional[asyncio.AbstractEventLoop]=None) -> \
+    Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     if loop is None:
         loop = asyncio.get_event_loop()
 
@@ -1194,7 +1281,7 @@ def open_stdinout_connection(*, loop=None):
     return reader, writer
 
 
-def load_config_files(client_domain):
+def load_config_files(client_domain) -> configparser.SectionProxy:
     config_dirs = ['/etc', xdg.BaseDirectory.xdg_config_home]
 
     config = configparser.ConfigParser()
@@ -1207,7 +1294,7 @@ def load_config_files(client_domain):
     return config['DEFAULT']
 
 
-def main():
+def main() -> None:
     client_domain = os.environ['QREXEC_REMOTE_DOMAIN']
     config = load_config_files(client_domain)
 
