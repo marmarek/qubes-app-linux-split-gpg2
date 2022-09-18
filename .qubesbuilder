@@ -1,0 +1,11 @@
+host:
+  rpm:
+    build:
+    - rpm_spec/split-gpg2-dom0.spec
+vm:
+  rpm:
+    build:
+    - rpm_spec/split-gpg2.spec
+  deb:
+    build:
+    - debian
