@@ -20,6 +20,7 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
 # USA.
 #
+import time
 import unittest
 
 import qubes.tests.extra
@@ -38,10 +39,11 @@ class SplitGPGBase(qubes.tests.extra.ExtraTestCase):
         # generated in the past even when the frontend have clock few minutes
         #  into the future - otherwise new key may look as
         # generated in the future and be considered not yet valid
+        gpg_time_opts = ""
         if "whonix" in self.template:
-            self.backend.run("date -s -10min", user="root", wait=True)
+            gpg_time_opts = f"--faked-system-time {int(time.time()) - 600}!"
         p = self.backend.run(
-            "mkdir -p -m 0700 .gnupg; gpg2 --gen-key --batch",
+            f"mkdir -p -m 0700 .gnupg; gpg2 {gpg_time_opts} --gen-key --batch",
             passio_popen=True,
             passio_stderr=True,
         )
@@ -73,9 +75,12 @@ Expire-Date: 0
         )
         fpr = [l for l in stdout.splitlines() if l.startswith(b"fpr:")][0]
         fpr = fpr.decode().split(":")[9]
+        if "whonix" in self.template:
+            # make it strictly later than the main key
+            gpg_time_opts = f"--faked-system-time {int(time.time()) - 599}!"
         # add signing subkey
         p = self.backend.run(
-            f"gpg2 --batch --passphrase "
+            f"gpg2 {gpg_time_opts} --batch --passphrase "
             " --quick-add-key "
             f"{fpr} rsa sign never",
             passio_popen=True,
@@ -84,8 +89,6 @@ Expire-Date: 0
         stdout, stderr = p.communicate()
         if p.returncode != 0:
             self.fail("subkey generation failed: {}{}".format(stdout, stderr))
-        if "whonix" in self.template:
-            self.backend.run("date -s +10min", user="root", wait=True)
 
         p = self.backend.run(
             "mkdir -p .config/qubes-split-gpg2; cat > .config/qubes-split-gpg2/qubes-split-gpg2.conf",
@@ -288,11 +291,13 @@ class TC_00_Direct(SplitGPGBase):
         p.communicate(b"allow_keygen = yes\n")
 
         # see comment in setUp()
+        gpg_time_opts = ""
         if "whonix" in self.template:
-            self.frontend.run("date -s -10min", user="root", wait=True)
+            gpg_time_opts = f"--faked-system-time {int(time.time()) - 600}!"
 
         p = self.frontend.run(
-            "mkdir -p -m 0700 .gnupg; gpg2 --gen-key --batch", passio_popen=True
+            f"mkdir -p -m 0700 .gnupg; gpg2 {gpg_time_opts} --gen-key --batch",
+            passio_popen=True
         )
         p.communicate("""
 Key-Type: RSA
@@ -308,9 +313,6 @@ Expire-Date: 0
 %commit
         """.encode())
         assert p.returncode == 0, "key generation failed"
-        # see comment in setUp()
-        if "whonix" in self.template:
-            self.frontend.run("date -s +10min", user="root", wait=True)
 
         p = self.frontend.run("gpg2 --list-keys", passio_popen=True)
         key_list, _ = p.communicate()
@@ -321,12 +323,13 @@ Expire-Date: 0
 
     def test_060_import_secret(self):
         # see comment in setUp()
+        gpg_time_opts = ""
         if "whonix" in self.template:
-            self.frontend.run("date -s -10min", user="root", wait=True)
+            gpg_time_opts = f"--faked-system-time {int(time.time()) - 600}!"
         p = self.frontend.run(
             "mkdir -p -m 0700 temp-gnupg; export GNUPGHOME=$HOME/temp-gnupg; "
             "gpgconf --launch gpg-agent && "
-            "gpg2 --gen-key --batch && "
+            f"gpg2 {gpg_time_opts} --gen-key --batch && "
             "gpg2 -a --export-secret-key user2@localhost && "
             "gpgconf --kill gpg-agent",
             passio_popen=True,
@@ -345,9 +348,6 @@ Expire-Date: 0
 %commit
         """.encode())
         assert p.returncode == 0, "key generation failed"
-        # see comment in setUp()
-        if "whonix" in self.template:
-            self.frontend.run("date -s +10min", user="root", wait=True)
 
         p = self.frontend.run("gpg2 --list-keys", passio_popen=True)
         key_list, _ = p.communicate()
