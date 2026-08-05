@@ -35,6 +35,9 @@ class DidNotTerminate(AssertionError):
 # than the Unix socket we use for other tests (for example on close). So
 # instead start the service script directly.
 class TC_Termination(unittest.TestCase):
+    service_stdin: IO[bytes]
+    service_stdout: IO[bytes]
+
     @staticmethod
     def path_prepend(env: Dict[str, str], name: str, value: str) -> None:
         if name in env:
